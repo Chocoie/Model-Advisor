@@ -11,3 +11,29 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 
 Then open http://localhost:8000/docs
+
+## Endpoints
+
+### GET /health
+Checks that the backend is running.
+
+Response:
+```json
+{"status": "ok"}
+```
+
+### POST /message
+Temporary test endpoint for frontend ↔ backend communication.
+Echoes the message back (no LLM connected yet).
+
+Request:
+```json
+{"message": "hello"}
+```
+
+Response:
+```json
+{"reply": "Test response: hello"}
+```
+
+Full interactive docs: http://localhost:8000/docs
