@@ -1,0 +1,55 @@
+Capability,Skill / Certificate,Definition,Example Task / Test Case
+Reasoning,Analogical Reasoning,Ability to identify structural similarities and relational mappings between two different concepts or domains.,Brain is to human as CPU is to computer
+Reasoning,Deductive Reasoning,Ability to derive logically certain conclusions from given premises using formal logical rules.,All humans are mortal; Socrates is human; Socrates is mortal
+Reasoning,Inductive Reasoning,Ability to infer general rules or patterns from specific observations or examples.,"Observed swans are white; therefore, all swans are white"
+Reasoning,Quantitative Reasoning,"Ability to perform numerical calculations, estimation, and mathematical interpretation.",Calculating average test scores to determine class performance
+Reasoning,Spatial Reasoning,"Ability to understand positions, orientation, and relationships of objects in space.",Infer object locations from Natural Language Descriptions
+Reasoning,Temporal Reasoning,"Ability to understand sequence, duration, and ordering of events over time.",Infer sequence of events from Natural Language Descriptions
+Reasoning,Causal Reasoning,Ability to infer cause-effect relationships and understand why events occur.,Infer cause and effects based on Natural Language Descriptions
+Reasoning,Compositionality,Ability to combine smaller pieces of information into a coherent larger meaning.,"Determine whether pieces of information overlap, intersect, or differ"
+Narrative Understanding,Summarization,Ability to condense information while preserving key meaning and important details.,Clearly express the most important information from a passage
+Narrative Understanding,Information Synthesis,Ability to integrate multiple sources into a coherent and unified narrative.,Integrate multiple passages into a coherent narrative
+Narrative Understanding,Argument Mining,"Ability to identify argumentative structure such as claims, evidence, and conclusions.","Identify argumentative elements (claims, evidence, etc.)"
+Narrative Understanding,Event Reconstruction,Ability to infer the correct order and structure of events from fragmented descriptions.,Interpret the correct sequence of events
+Narrative Understanding,Event Extrapolation,Ability to predict future events while remaining consistent with the narrative world.,Predict outcomes that adhere to story rules
+Social-Aware Communication,Mind Reading,"Ability to infer beliefs, intentions, and mental state of another actor (Theory of Mind).",Simulate the mental state of an actor
+Social-Aware Communication,Emotion Inference,Ability to recognize emotional states from text and context.,Identify emotions in text
+Social-Aware Communication,Cultural Understanding,Ability to interpret and respond appropriately based on cultural or social context.,Provide answers based on user background
+Social-Aware Communication,Empathetic Thinking,Ability to anticipate another person’s emotional reaction and respond sensitively.,Predict another person's emotional response
+Creativity,Creative Reasoning Task,"Ability to solve problems using flexible, novel, and non-routine reasoning strategies.",Solve problems using novel reasoning strategies
+Creativity,Creative Generation Task,Ability to generate original outputs beyond direct imitation of seen patterns.,Generate original outputs beyond imitation
+Creativity,Divergent Thinking Task,Ability to generate multiple diverse ideas or possible solutions.,Generate multiple diverse ideas
+Creativity,Novel Concept Formation / Recognition Task,"Ability to create, identify, or reason about previously unseen concepts.",Create or identify new concepts
+Ethical / Fair Response Generation,Factual Content Generation,Ability to produce factually correct and grounded responses.,Produce the correct factual answer
+Ethical / Fair Response Generation,Harmless Content Generation,"Ability to generate safe, non-harmful, and policy-aligned responses.",Provide safe responses
+Ethical / Fair Response Generation,False Assertion Resistance,Ability to resist accepting false premises introduced by the user.,Push back against false claims
+Ethical / Fair Response Generation,Anchoring Bias Mitigation,Ability to avoid over-reliance on initial information during judgment.,Avoid influence of initial values
+Ethical / Fair Response Generation,Availability Bias Mitigation,Ability to base judgments on actual likelihood rather than salience or recall.,Base judgments on likelihood
+Ethical / Fair Response Generation,Confirmation Bias Mitigation,Ability to consider supporting and opposing evidence equally.,Consider all evidence equally
+Ethical / Fair Response Generation,Framing Bias Mitigation,Ability to remain logically consistent across differently phrased prompts.,Maintain consistency across phrasing
+Ethical / Fair Response Generation,Prospect Theory Bias Mitigation,Ability to balance decisions under gain/loss framing consistently.,Balance gain/loss decisions
+Ethical / Fair Response Generation,Political Bias Mitigation,Ability to provide neutral and balanced responses across political viewpoints.,Provide balanced political views
+Ethical / Fair Response Generation,Racial Bias Mitigation,Ability to avoid racial stereotypes and maintain fairness.,Provide balanced racial views
+Ethical / Fair Response Generation,Religious Bias Mitigation,Ability to respond fairly across religious beliefs and viewpoints.,Provide balanced religious views
+Ethical / Fair Response Generation,Attribution Bias Mitigation,Ability to balance dispositional vs situational explanations for behavior.,Balance personality vs environment
+Adherence to Instructions,Intent Classification,Ability to correctly infer the user’s goal or request.,Identify user intent
+Adherence to Instructions,Entity Identification,"Ability to identify important people, objects, places, or concepts in input.",Identify key subjects
+Adherence to Instructions,Format Adherence,Ability to generate outputs in required structured formats or schemas.,"Generate structured outputs (JSON, etc.)"
+Adherence to Instructions,Role Playing,Ability to consistently maintain a specified persona or role.,Portray a character correctly
+Multilingual Generation,Machine Translation,Ability to accurately translate meaning across languages while preserving semantics.,Translate across languages
+Multilingual Generation,Code Generation,Ability to generate syntactically correct and functional code.,Generate functional code
+Personalization & Adaptation,Context Awareness,Ability to preserve and use prior conversational context.,Maintain and use prior context in interactions
+Personalization & Adaptation,Response Adaptation,"Ability to adjust style, depth, and tone based on user needs.",Adjust responses based on user input style or level
+Personalization & Adaptation,Preference Learning,Ability to infer and adapt to user preferences over time.,Infer and adapt to user preferences over time
+Decision Support,Ranking,Ability to order options according to defined criteria.,Order items or options based on criteria
+Decision Support,Outcome Prediction,Ability to estimate likely future outcomes from current inputs.,Predict likely outcomes based on given inputs
+Automation & Planning,Task Decomposition,Ability to break complex goals into manageable subtasks.,Break complex tasks into smaller steps
+Automation & Planning,Sequential Planning,Ability to generate ordered action sequences to achieve a goal.,Generate ordered steps to achieve a goal
+Automation & Planning,Constraint Satisfaction,Ability to generate solutions that satisfy explicit constraints.,Generate solutions that meet given constraints
+Data Understanding,Pattern Recognition,"Ability to identify recurring structures, trends, or regularities.",Identify patterns in data or text
+Data Understanding,Anomaly Detection,Ability to detect deviations from expected patterns.,Detect unusual or inconsistent patterns
+Data Understanding,Data Interpretation,Ability to extract actionable meaning from structured or unstructured data.,Extract meaning from structured or unstructured data
+Interaction & Assistance,Conversational Question Answering,Ability to answer user queries interactively across multiple turns.,Answer queries interactively
+Interaction & Assistance,Clarification Asking,Ability to ask follow-up questions when the input is ambiguous or incomplete.,Ask follow-up questions when input is ambiguous
+Interaction & Assistance,Explanation Generation,"Ability to provide clear, interpretable, step-by-step explanations.",Provide clear step-by-step explanations
+General Cognitive Skills,Abstraction,Ability to generalize concepts from specific examples into broader principles.,Generalize concepts from specific examples
