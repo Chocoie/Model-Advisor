@@ -1,15 +1,14 @@
-# ModelAdvisor Backend
-
-FastAPI backend for ModelAdvisor.
-
 ## Setup
+```bash
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+```
 
 ## Run
+```bash
 uvicorn main:app --reload
-
+```
 Then open http://localhost:8000/docs
 
 ## Endpoints
@@ -76,54 +75,59 @@ Response:
 Errors: `400` if a skill name is unknown or the list is empty.
 
 
+### Conversations
+> Stored in memory for now: conversations are lost when the server restarts.
+> Replies come from a placeholder keyword-based agent (`chat_agent.py`) until the LLM agent is ready.
+
 ### POST /conversations
 Creates a new empty conversation.
 
 Response:
 ```json
-{
-  "conversation_id": "3bde8170-cab8-428e-88fd-1b551fa9c391"
-}
+{"conversation_id": "3bde8170-cab8-428e-88fd-1b551fa9c391"}
 ```
 
-
-### GET /conversations/{conversation_id} 
+### GET /conversations/{conversation_id}
 Returns the full message history.
 
-Response
+Response:
 ```json
 {
-  "conversation_id": "75f89191-9457-4e60-b134-dcdfab325af5",
+  "conversation_id": "3bde8170-cab8-428e-88fd-1b551fa9c391",
   "messages": [
-    {
-      "role": "user",
-      "content": "hi?"
-    },
-    {
-      "role": "assistant",
-      "content": "Test response: hi?"
-    }
+    {"role": "user", "content": "hello"},
+    {"role": "assistant", "content": "Can you tell me more about the task? What should the model do?"}
   ]
 }
 ```
 Errors: `404` if the conversation doesn't exist.
 
-
 ### POST /conversations/{conversation_id}/messages
 Adds a user message and returns the reply. Both are saved in the history.
+The reply is either a follow-up question, or the detected skills and the top models.
 
 Request:
 ```json
-{
-    "message": "hi?"
-}
+{"message": "I need a model to solve math word problems"}
 ```
 
-Response
+Response (follow-up question):
+```json
+{"reply": "Can you tell me more about the task? What should the model do?", "skills": [], "results": []}
+```
+
+Response (recommendation):
 ```json
 {
-  "reply": "Test response: hi?"
+  "reply": "Skills detected: Quantitative Reasoning\nTop models:\n1. ...",
+  "skills": ["Quantitative Reasoning"],
+  "results": [
+    {"model": "...", "avg_rank": 1.0, "scores": {"Quantitative Reasoning": 11.129}}
+  ]
 }
 ```
+`results` uses the same format as `/rankings`.
+
+Errors: `404` if the conversation doesn't exist.
 
 Full interactive docs: http://localhost:8000/docs

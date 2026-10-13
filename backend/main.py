@@ -1,8 +1,10 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
 from ranking_data import rank_skills, VALID_SKILLS
 from conversations import create_conversation, get_messages, add_message
+from chat_agent import next_step, explain
 
 app = FastAPI()
 
@@ -14,13 +16,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# What the frontend sends
+
+# --- Messages ---
+
+# A user message (used by /message and the conversation endpoint)
 class MessageRequest(BaseModel):
     message: str
 
-# What the backend sends back
+
+# Reply from the test endpoint (/message), used by the frontend for now
 class MessageResponse(BaseModel):
     reply: str
+
+
+# --- Rankings ---
 
 class RankingRequest(BaseModel):
     skills: list[str]
@@ -37,6 +46,8 @@ class RankingResponse(BaseModel):
     results: list[ModelRanking]
 
 
+# --- Conversations ---
+
 class ConversationResponse(BaseModel):
     conversation_id: str
 
@@ -51,11 +62,21 @@ class ConversationHistory(BaseModel):
     messages: list[Message]
 
 
+# Reply in a conversation: skills/results stay empty when it's a follow-up question
+class ConversationReply(BaseModel):
+    reply: str
+    skills: list[str] = []
+    results: list[ModelRanking] = []
+
+
+# --- Endpoints ---
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
+
+# Test endpoint: TODO remove once the frontend uses the conversation endpoints
 @app.post("/message", response_model=MessageResponse)
 def send_message(request: MessageRequest):
     return MessageResponse(reply=f"Test response: {request.message}")
@@ -74,6 +95,7 @@ def get_rankings(request: RankingRequest):
         raise HTTPException(status_code=400, detail=str(e))
     return RankingResponse(results=results)
 
+
 @app.post("/conversations", response_model=ConversationResponse)
 def new_conversation():
     return ConversationResponse(conversation_id=create_conversation())
@@ -86,14 +108,23 @@ def read_conversation(conversation_id: str):
         raise HTTPException(status_code=404, detail="Conversation not found")
     return ConversationHistory(conversation_id=conversation_id, messages=messages)
 
-@app.post("/conversations/{conversation_id}/messages", response_model=MessageResponse)
+
+@app.post("/conversations/{conversation_id}/messages", response_model=ConversationReply)
 def send_conversation_message(conversation_id: str, request: MessageRequest):
     if get_messages(conversation_id) is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     add_message(conversation_id, "user", request.message)
+    step = next_step(get_messages(conversation_id))
 
-    reply = f"Test response: {request.message}"  # placeholder until the chat agent (Task 4)
+    # Agent needs more info: ask a follow-up question
+    if step["type"] == "question":
+        reply = step["question"]
+        add_message(conversation_id, "assistant", reply)
+        return ConversationReply(reply=reply)
 
+    # Agent found the skills: rank models and explain
+    results = rank_skills(step["skills"])
+    reply = explain(step["skills"], results)
     add_message(conversation_id, "assistant", reply)
-    return MessageResponse(reply=reply)
+    return ConversationReply(reply=reply, skills=step["skills"], results=results)

@@ -6,7 +6,7 @@ CONVERSATIONS = {}
 
 
 def create_conversation():
-    conversation_id = str(uuid.uuid4())
+    conversation_id = str(uuid.uuid4()) #random unique id
     CONVERSATIONS[conversation_id] = []
     return conversation_id
 
