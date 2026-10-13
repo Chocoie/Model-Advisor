@@ -75,4 +75,55 @@ Response:
 
 Errors: `400` if a skill name is unknown or the list is empty.
 
+
+### POST /conversations
+Creates a new empty conversation.
+
+Response:
+```json
+{
+  "conversation_id": "3bde8170-cab8-428e-88fd-1b551fa9c391"
+}
+```
+
+
+### GET /conversations/{conversation_id} 
+Returns the full message history.
+
+Response
+```json
+{
+  "conversation_id": "75f89191-9457-4e60-b134-dcdfab325af5",
+  "messages": [
+    {
+      "role": "user",
+      "content": "hi?"
+    },
+    {
+      "role": "assistant",
+      "content": "Test response: hi?"
+    }
+  ]
+}
+```
+Errors: `404` if the conversation doesn't exist.
+
+
+### POST /conversations/{conversation_id}/messages
+Adds a user message and returns the reply. Both are saved in the history.
+
+Request:
+```json
+{
+    "message": "hi?"
+}
+```
+
+Response
+```json
+{
+  "reply": "Test response: hi?"
+}
+```
+
 Full interactive docs: http://localhost:8000/docs
