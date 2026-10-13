@@ -1,0 +1,83 @@
+{
+  "capabilities": [
+    {
+      "name": "Reasoning",
+      "skills": [
+        "Deductive Reasoning",
+        "Causal Reasoning",
+        "Temporal Reasoning",
+        "Compositionality",
+        "Quantitative Reasoning",
+        "Analogical Reasoning",
+        "Moral / Ethical Reasoning"
+      ]
+    },
+    {
+      "name": "Narrative Understanding",
+      "skills": [
+        "Summarization",
+        "Information Synthesis",
+        "Event Extrapolation",
+        "Argument Mining"
+      ]
+    },
+    {
+      "name": "Social-Aware Communication",
+      "skills": [
+        "Emotion Inference",
+        "Cultural Understanding",
+        "Mind Reading"
+      ]
+    },
+    {
+      "name": "Ethical / Fair Response Generation",
+      "skills": [
+        "Factual Content Generation",
+        "False Assertion Resistance",
+        "Availability Bias Mitigation",
+        "Confirmation Bias Mitigation",
+        "Racial Bias Mitigation",
+        "Religious Bias Mitigation",
+        "Political Bias Mitigation",
+        "Harmless Content Generation",
+        "Framing Bias Mitigation",
+        "Attribution Bias Mitigation"
+      ]
+    },
+    {
+      "name": "Adherence to Instructions",
+      "skills": [
+        "Format Adherence",
+        "Intent Classification",
+        "Entity Identification"
+      ]
+    },
+    {
+      "name": "Multilingual Generation",
+      "skills": [
+        "Code Generation"
+      ]
+    },
+    {
+      "name": "Decision Support",
+      "skills": [
+        "Outcome Prediction"
+      ]
+    },
+    {
+      "name": "Automation & Planning",
+      "skills": [
+        "Task Decomposition",
+        "Sequential Planning",
+        "Constraint Satisfaction"
+      ]
+    },
+    {
+      "name": "Data Understanding",
+      "skills": [
+        "Data Interpretation",
+        "Pattern Recognition"
+      ]
+    }
+  ]
+}

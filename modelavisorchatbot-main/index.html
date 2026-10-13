@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Advisor</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --panel: #ffffff;
+    --text: #1c2333;
+    --muted: #6b7280;
+    --accent: #4f46e5;
+    --accent-soft: #eef2ff;
+    --border: #e5e7eb;
+    --user-bubble: #4f46e5;
+    --bot-bubble: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .sub { font-size: 12px; color: var(--muted); }
+  .keybtn { border: 1px solid var(--border); background: var(--panel); color: var(--text); font: inherit; font-size: 12.5px; padding: 5px 10px; border-radius: 6px; cursor: pointer; margin-left: auto; }
+  .keybtn.set { border-color: #16a34a; color: #15803d; }
+  .keypanel { display: none; background: var(--panel); border-bottom: 1px solid var(--border); padding: 10px 20px; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+  .keypanel.open { display: flex; }
+  .keypanel input { flex: 1; min-width: 220px; border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px; font: inherit; }
+  .keypanel button { border: 1px solid var(--border); background: var(--panel); font: inherit; padding: 7px 12px; border-radius: 6px; cursor: pointer; }
+  .keypanel .save { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .keypanel .note { flex-basis: 100%; color: var(--muted); font-size: 12px; }
+  .status { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #d1d5db; }
+  .dot.on { background: #16a34a; }
+  .dot.off { background: #dc2626; }
+  .layout { flex: 1; display: flex; min-height: 0; }
+  aside {
+    width: 280px;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 14px;
+    flex-shrink: 0;
+  }
+  aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 10px; }
+  .cap { margin-bottom: 6px; }
+  .cap > button {
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    padding: 6px 8px;
+    cursor: pointer;
+    border-radius: 6px;
+  }
+  .cap > button:hover { background: var(--accent-soft); }
+  .cap > button::before { content: "▸ "; color: var(--muted); }
+  .cap.open > button::before { content: "▾ "; }
+  .skills { display: none; padding: 0 0 6px 18px; }
+  .cap.open .skills { display: block; }
+  .skills span {
+    display: block;
+    font-size: 12.5px;
+    color: var(--muted);
+    padding: 3px 6px;
+    border-radius: 5px;
+  }
+  .skills span:hover { background: #f3f4f6; color: var(--text); }
+  main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #chat { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+  .msg { max-width: 78%; padding: 11px 14px; border-radius: 12px; line-height: 1.45; font-size: 14.5px; white-space: pre-wrap; word-wrap: break-word; }
+  .msg.user { align-self: flex-end; background: var(--user-bubble); color: #fff; border-bottom-right-radius: 4px; }
+  .msg.bot { align-self: flex-start; background: var(--bot-bubble); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+  .hint { align-self: center; font-size: 12.5px; color: var(--muted); }
+  .card {
+    align-self: flex-start;
+    max-width: 78%;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .card .tag { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .card .skill { font-size: 17px; font-weight: 700; margin: 4px 0 2px; }
+  .card .cap { font-size: 13px; color: var(--muted); }
+  .card .summary { font-size: 13.5px; margin-top: 8px; color: #374151; }
+  .card .conf { font-size: 12px; margin-top: 8px; color: var(--muted); }
+  .confbar { height: 5px; border-radius: 4px; background: #e5e7eb; margin-top: 4px; overflow: hidden; }
+  .confbar > div { height: 100%; background: var(--accent); }
+  .recbox { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+  .rechead { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 8px; }
+  .recrow { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; margin-bottom: 2px; font-size: 13.5px; }
+  .recrow.top { background: #f0fdf4; border: 1px solid #bbf7d0; }
+  .recrank { font-weight: 700; color: var(--muted); min-width: 20px; }
+  .recname { flex: 1; }
+  .recrow.top .recname { font-weight: 600; }
+  .recscore { color: var(--muted); font-size: 12.5px; }
+  .recbadge { background: #16a34a; color: #fff; font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 10px; }
+  .skilllabel { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--accent); margin-top: 8px; font-weight: 600; }
+  .card .skill.sec { font-size: 15px; font-weight: 600; margin: 2px 0; }
+  .alsoskills { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+  .recsub { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  .err { align-self: center; background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; border-radius: 8px; padding: 10px 14px; font-size: 13px; max-width: 85%; }
+  .composer {
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+    padding: 14px 20px;
+    display: flex;
+    gap: 10px;
+  }
+  .composer input {
+    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 11px 12px;
+    font: inherit;
+    font-size: 14.5px;
+  }
+  .composer input:focus { outline: none; border-color: var(--accent); }
+  .composer button {
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 11px 18px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .composer button:disabled { opacity: .5; cursor: default; }
+  .composer .reset { background: #fff; color: var(--text); border: 1px solid var(--border); }
+  .typing { color: var(--muted); font-size: 13px; align-self: flex-start; }
+  @media (max-width: 720px) {
+    aside { display: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Model Advisor</h1>
+  <span class="sub">picks the best model for your task</span>
+  <button class="keybtn" id="keyBtn" title="Use your own Ollama API key">🔑 API key</button>
+  <div class="status">
+    <span class="dot" id="dot"></span>
+    <span id="statusText">checking model…</span>
+  </div>
+</header>
+<div class="keypanel" id="keyPanel">
+  <input id="keyInput" type="password" placeholder="Your Ollama API key" autocomplete="off">
+  <button class="save" id="keySave">Save</button>
+  <button id="keyClear">Clear</button>
+  <span class="note">Stored only in this browser and sent to this app's server with each request. You get a free API key by creating an Ollama account on their website (ollama.com/settings/keys). Leave blank to use the server's key.</span>
+</div>
+
+<div class="layout">
+  <aside>
+    <h2>Taxonomy</h2>
+    <div id="taxonomy"></div>
+  </aside>
+
+  <main>
+    <div id="chat">
+      <div class="hint">Tell me what task you need a model for — I'll ask for any details I need and recommend the best models.</div>
+    </div>
+    <div class="composer">
+      <button class="reset" id="resetBtn" title="Start over">↺ Reset</button>
+      <input id="input" placeholder="Describe your task or objective…" autocomplete="off">
+      <button id="sendBtn">Send</button>
+    </div>
+  </main>
+</div>
+
+<script>
+const chatEl = document.getElementById("chat");
+const inputEl = document.getElementById("input");
+const sendBtn = document.getElementById("sendBtn");
+const resetBtn = document.getElementById("resetBtn");
+const dotEl = document.getElementById("dot");
+const statusEl = document.getElementById("statusText");
+const taxEl = document.getElementById("taxonomy");
+
+let messages = [];        // [{role, content}] — assistant content is raw JSON
+let busy = false;
+
+// ---------- user API key (browser-local) ----------
+const keyBtn = document.getElementById("keyBtn");
+const keyPanel = document.getElementById("keyPanel");
+const keyInput = document.getElementById("keyInput");
+function getUserKey() {
+  try { return localStorage.getItem("ollamaKey") || ""; } catch (e) { return ""; }
+}
+function setUserKey(v) {
+  try { v ? localStorage.setItem("ollamaKey", v) : localStorage.removeItem("ollamaKey"); } catch (e) {}
+  refreshKeyBtn();
+}
+function refreshKeyBtn() {
+  const has = !!getUserKey();
+  keyBtn.classList.toggle("set", has);
+  keyBtn.textContent = has ? "🔑 Using your key" : "🔑 API key";
+}
+keyBtn.onclick = () => { keyPanel.classList.toggle("open"); keyInput.value = getUserKey(); };
+document.getElementById("keySave").onclick = () => {
+  setUserKey(keyInput.value.trim()); keyPanel.classList.remove("open"); checkHealth();
+};
+document.getElementById("keyClear").onclick = () => {
+  keyInput.value = ""; setUserKey(""); keyPanel.classList.remove("open"); checkHealth();
+};
+refreshKeyBtn();
+
+// ---------- taxonomy sidebar ----------
+async function loadTaxonomy() {
+  const tax = await fetchJson("/api/taxonomy");
+  taxEl.innerHTML = "";
+  tax.capabilities.forEach((cap, i) => {
+    const capDiv = document.createElement("div");
+    capDiv.className = "cap";
+    const btn = document.createElement("button");
+    btn.textContent = cap.name;
+    btn.onclick = () => capDiv.classList.toggle("open");
+    const skills = document.createElement("div");
+    skills.className = "skills";
+    cap.skills.forEach(s => {
+      const sp = document.createElement("span");
+      sp.textContent = s;
+      sp.style.cursor = "pointer";
+      sp.title = "Add to your task";
+      sp.onclick = () => { inputEl.value = (inputEl.value ? inputEl.value + " " : "") + s; inputEl.focus(); };
+      skills.appendChild(sp);
+    });
+    capDiv.appendChild(btn);
+    capDiv.appendChild(skills);
+    taxEl.appendChild(capDiv);
+    if (i === 0) capDiv.classList.add("open");
+  });
+}
+
+// ---------- health ----------
+async function checkHealth() {
+  try {
+    const h = await fetchJson("/api/health");
+    if (h.local) {
+      dotEl.className = "dot on";
+      statusEl.textContent = "local mode (no API calls)";
+    } else if (h.lmstudio) {
+      dotEl.className = "dot on";
+      statusEl.textContent = "model online";
+    } else {
+      dotEl.className = "dot off";
+      statusEl.textContent = "model offline";
+    }
+  } catch {
+    dotEl.className = "dot off";
+    statusEl.textContent = "server error";
+  }
+}
+
+// ---------- rendering ----------
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+}
+
+function renderMessage(m) {
+  if (m.role === "user") {
+    chatEl.appendChild(el("div", "msg user", m.content));
+    return;
+  }
+  // assistant
+  let obj = null;
+  try { obj = JSON.parse(m.content); } catch (e) { obj = null; }
+  if (obj && obj.type === "question") {
+    chatEl.appendChild(el("div", "msg bot", obj.text || "(no text)"));
+  } else if (obj && obj.type === "answer") {
+    const skills = (Array.isArray(obj.skills) && obj.skills.length) ? obj.skills : [obj.skill || "?"];
+    const card = el("div", "card");
+    card.appendChild(el("div", "tag", skills.length > 1 ? "Classified as (multi-skill)" : "Classified as"));
+    if (skills.length > 1) {
+      card.appendChild(el("div", "skilllabel", "Primary"));
+      card.appendChild(el("div", "skill", skills[0]));
+      card.appendChild(el("div", "skilllabel", "Secondary"));
+      skills.slice(1).forEach(s => card.appendChild(el("div", "skill sec", s)));
+    } else {
+      card.appendChild(el("div", "skill", skills[0]));
+    }
+    if (obj.capability) card.appendChild(el("div", "cap", obj.capability));
+    if (obj.summary) card.appendChild(el("div", "summary", obj.summary));
+    const conf = (typeof obj.confidence === "number") ? obj.confidence : 0.5;
+    card.appendChild(el("div", "conf", "confidence " + Math.round(conf * 100) + "%"));
+    const bar = el("div", "confbar");
+    const fill = document.createElement("div");
+    fill.style.width = Math.round(conf * 100) + "%";
+    bar.appendChild(fill);
+    card.appendChild(bar);
+    if (m.recs && m.recs.length) {
+      const recbox = el("div", "recbox");
+      recbox.appendChild(el("div", "rechead", skills.length > 1 ? "Top models across all skills" : "Top models for this skill"));
+      m.recs.forEach((r, i) => {
+        const row = el("div", "recrow" + (i === 0 ? " top" : ""));
+        row.appendChild(el("span", "recrank", "#" + (i + 1)));
+        const nameEl = el("div", "recname");
+        nameEl.appendChild(el("div", "", r.name));
+        if (skills.length > 1 && r.scores) {
+          const sub = el("div", "recsub");
+          sub.textContent = Object.entries(r.scores).map(([k, v]) => k + ": " + v).join("  ·  ");
+          nameEl.appendChild(sub);
+        }
+        row.appendChild(nameEl);
+        const scoreLabel = skills.length === 1 ? String(r.scores[skills[0]]) : ("avg rank " + r.avg_rank);
+        row.appendChild(el("span", "recscore", scoreLabel));
+        if (i === 0) row.appendChild(el("span", "recbadge", "Recommended"));
+        recbox.appendChild(row);
+      });
+      card.appendChild(recbox);
+    }
+    chatEl.appendChild(card);
+  } else {
+    chatEl.appendChild(el("div", "msg bot", m.content));
+  }
+}
+
+function render() {
+  chatEl.innerHTML = "";
+  const hint = el("div", "hint", "Tell me what task you need a model for — I'll ask for any details I need and recommend the best models.");
+  chatEl.appendChild(hint);
+  messages.forEach(renderMessage);
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+function showError(text) {
+  chatEl.appendChild(el("div", "err", text));
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+// ---------- helpers ----------
+async function fetchJson(url, opts) {
+  opts = opts || {};
+  const k = getUserKey();
+  if (k) opts.headers = Object.assign({}, opts.headers, { "X-Api-Key": k });
+  const r = await fetch(url, opts);
+  if (!r.ok) {
+    let msg = "HTTP " + r.status, quota = false;
+    try {
+      const j = await r.json();
+      if (j && j.error) msg = j.error;
+      quota = !!(j && j.quota);
+    } catch (e) {}
+    const err = new Error(msg);
+    err.quota = quota;
+    throw err;
+  }
+  return r.json();
+}
+
+// ---------- actions ----------
+async function send() {
+  const text = inputEl.value.trim();
+  if (!text || busy) return;
+  inputEl.value = "";
+  messages.push({ role: "user", content: text });
+  render();
+  busy = true;
+  sendBtn.disabled = true;
+  const typing = el("div", "typing", "thinking…");
+  chatEl.appendChild(typing);
+  chatEl.scrollTop = chatEl.scrollHeight;
+
+  try {
+    const data = await fetchJson("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: messages.map(m => ({ role: m.role, content: m.content })) })
+    });
+    typing.remove();
+    if (!data.ok) {
+      showError(data.error || "Something went wrong.");
+    } else {
+      const recs = (data.result && data.result.recommendations) || null;
+      messages.push({ role: "assistant", content: data.content, recs: recs });
+      render();
+    }
+  } catch (e) {
+    typing.remove();
+    if (e.quota) {
+      showError(e.message);
+      keyPanel.classList.add("open");
+      keyInput.focus();
+    } else {
+      showError("Could not reach the server: " + e.message);
+    }
+  } finally {
+    busy = false;
+    sendBtn.disabled = false;
+    inputEl.focus();
+  }
+}
+
+sendBtn.onclick = send;
+inputEl.addEventListener("keydown", e => { if (e.key === "Enter") send(); });
+resetBtn.onclick = () => { messages = []; render(); };
+
+loadTaxonomy();
+checkHealth();
+setInterval(checkHealth, 15000);
+render();
+</script>
+</body>
+</html>
