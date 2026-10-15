@@ -102,7 +102,7 @@ Response:
 ```
 Errors: `404` if the conversation doesn't exist.
 
-### POST /conversations/{conversation_id}/messages
+### POST /conversations/{conversation_id}/message
 Adds a user message and returns the reply. Both are saved in the history.
 The reply is either a follow-up question, or the detected skills and the top models.
 

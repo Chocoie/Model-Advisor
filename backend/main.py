@@ -1,10 +1,11 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel # object validity and python <-> json 
 
-from ranking_data import rank_skills, VALID_SKILLS
+from ranking_data import VALID_SKILLS, rank_skills
 from conversations import create_conversation, get_messages, add_message
-from chat_agent import next_step, explain
+from chat_agent import next_action, explain_results
+
 
 app = FastAPI()
 
@@ -13,9 +14,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*"]
 )
-
 
 # --- Messages ---
 
@@ -23,47 +23,33 @@ app.add_middleware(
 class MessageRequest(BaseModel):
     message: str
 
-
-# Reply from the test endpoint (/message), used by the frontend for now
-class MessageResponse(BaseModel):
-    reply: str
-
-
 # --- Rankings ---
-
-class RankingRequest(BaseModel):
+class RankingRequest(BaseModel): # Top n models ranking request
     skills: list[str]
-    top_n: int = 3
+    top_n: int=3
 
-
-class ModelRanking(BaseModel):
+class ModelRanking(BaseModel): # One model only
     model: str
     avg_rank: float
     scores: dict[str, float]
 
-
-class RankingResponse(BaseModel):
-    results: list[ModelRanking]
-
+class RankingResponse(BaseModel): #  Top n models results
+    results: list[ModelRanking]  # [{model, avg_rank, scores}, {...}]
 
 # --- Conversations ---
-
-class ConversationResponse(BaseModel):
+class NewConversation(BaseModel):
     conversation_id: str
-
 
 class Message(BaseModel):
     role: str
     content: str
 
-
 class ConversationHistory(BaseModel):
     conversation_id: str
     messages: list[Message]
 
-
 # Reply in a conversation: skills/results stay empty when it's a follow-up question
-class ConversationReply(BaseModel):
+class MessageResponse(BaseModel):
     reply: str
     skills: list[str] = []
     results: list[ModelRanking] = []
@@ -75,56 +61,46 @@ class ConversationReply(BaseModel):
 def health():
     return {"status": "ok"}
 
-
-# Test endpoint: TODO remove once the frontend uses the conversation endpoints
-@app.post("/message", response_model=MessageResponse)
-def send_message(request: MessageRequest):
-    return MessageResponse(reply=f"Test response: {request.message}")
-
-
 @app.get("/skills")
 def list_skills():
     return sorted(VALID_SKILLS)
 
-
 @app.post("/rankings", response_model=RankingResponse)
-def get_rankings(request: RankingRequest):
+def get_ranking(request: RankingRequest):
     try:
         results = rank_skills(request.skills, request.top_n)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return RankingResponse(results=results)
 
-
-@app.post("/conversations", response_model=ConversationResponse)
+@app.post("/conversations", response_model=NewConversation)
 def new_conversation():
-    return ConversationResponse(conversation_id=create_conversation())
-
+    conversation_id = create_conversation()
+    return NewConversation(conversation_id=conversation_id)
 
 @app.get("/conversations/{conversation_id}", response_model=ConversationHistory)
-def read_conversation(conversation_id: str):
-    messages = get_messages(conversation_id)
-    if messages is None:
+def get_conversation(conversation_id: str):
+    conversation_history = get_messages(conversation_id)
+    if conversation_history is None: 
         raise HTTPException(status_code=404, detail="Conversation not found")
-    return ConversationHistory(conversation_id=conversation_id, messages=messages)
+    return ConversationHistory(conversation_id=conversation_id, messages=conversation_history)
 
-
-@app.post("/conversations/{conversation_id}/messages", response_model=ConversationReply)
-def send_conversation_message(conversation_id: str, request: MessageRequest):
+@app.post("/conversations/{conversation_id}/message", response_model=MessageResponse)
+def send_message(conversation_id: str, request: MessageRequest):
     if get_messages(conversation_id) is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    add_message(conversation_id, "user", request.message) #add user msg to conv
+    conversation_history = get_messages(conversation_id)
+    action = next_action(conversation_history) # get chat agent next action
 
-    add_message(conversation_id, "user", request.message)
-    step = next_step(get_messages(conversation_id))
-
-    # Agent needs more info: ask a follow-up question
-    if step["type"] == "question":
-        reply = step["question"]
+    if action["type"] == "question":
+        reply = action["question"]
         add_message(conversation_id, "assistant", reply)
-        return ConversationReply(reply=reply)
-
-    # Agent found the skills: rank models and explain
-    results = rank_skills(step["skills"])
-    reply = explain(step["skills"], results)
+        return MessageResponse(reply=reply)
+    
+    skills = action["skills"]
+    results = rank_skills(skills)
+    reply = explain_results(skills, results)
     add_message(conversation_id, "assistant", reply)
-    return ConversationReply(reply=reply, skills=step["skills"], results=results)
+
+    return MessageResponse(reply=reply, skills=skills, results=results)

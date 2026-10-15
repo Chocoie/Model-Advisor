@@ -1,1 +1,1 @@
-"""process ranking data"""
+# processing data from faria's files to db
