@@ -8,4 +8,6 @@ To currently run ModelAdvisor locally do the following steps:
 Ensure that you create a `.env.local` file and put the follow into it
 `NEXT_PUBLIC_API_URL=http://localhost:8000`
 
+Navigate to `http://localhost:3000/test` to test the backend endpoint.
+
 You should be able to test the POST response stated in the backend README.md
