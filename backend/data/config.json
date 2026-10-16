@@ -8,6 +8,6 @@
     "temperature": 0.0,
     "timeout_seconds": 300
   },
-  "classifier": "local",
+  "classifier": "llm",
   "max_questions": 6
 }

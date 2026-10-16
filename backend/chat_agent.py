@@ -12,14 +12,18 @@ and falls back to a plain list otherwise.
 """
 
 import json
-from llm_classifier import classify, call_llm, extract_json, use_local_classifier
+from llm_classifier import classify, call_llm, extract_json, use_local_classifier, classify_local
 
 def next_action(history):
     """
     Decide whether to ask the user another question or start ranking.
     Calls llm_classifier.classify on the conversation history.
     """
-    result, _, error = classify(history)
+    try:
+        result, _, error = classify(history)
+    except Exception as e:
+        print("LLM failed:", repr(e))
+        result, _, error = classify_local(history) 
     if error:
         return{"type" : "question", 
                        "question" : "Sorry, I did not quite get that. Could you describe what you need the model to do?"}
@@ -35,6 +39,7 @@ def explain_results(skills, results):
     LLM-written explanation when the LLM is on. Falls back to the plain list
     if the LLM is off, unreachable, or returns something unusable.
     """
+
     plain = plain_list(skills, results)
     if use_local_classifier():
         return plain                           # LLM is off

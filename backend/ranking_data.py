@@ -129,7 +129,7 @@ def rank_skills(skills, top_n=3):
             rank_total[model] += position
             skill_scores[model][skill] = round(score, 3)
     results = [
-        {"model": m, "avg_rank": rank_total[m] / len(skills), "scores": skill_scores[m]}
+        {"model": m, "avg_rank": round(rank_total[m] / len(skills), 3), "scores": skill_scores[m]}
         for m in SCORES
     ]
     results.sort(key= lambda x:x["avg_rank"])
