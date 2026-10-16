@@ -1,7 +1,8 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel # object validity and python <-> json 
+from pydantic import BaseModel, EmailStr, Field # object validity and python <-> json 
 
+from user import create_user, authenticate_user
 from ranking_data import VALID_SKILLS, rank_skills
 from conversations import create_conversation, get_messages, add_message
 from chat_agent import next_action, explain_results
@@ -17,16 +18,21 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-# --- Messages ---
 
-# A user message (used by /message and the conversation endpoint)
+# --- User ---
+class UserCredentials(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=72)
+
+# --- Messages ---
+# # A user message (used by /message and the conversation endpoint)
 class MessageRequest(BaseModel):
     message: str
 
 # --- Rankings ---
 class RankingRequest(BaseModel): # Top n models ranking request
     skills: list[str]
-    top_n: int=3
+    top_n: int = Field(default=3, ge=2, le= 30)
 
 class ModelRanking(BaseModel): # One model only
     model: str
@@ -72,6 +78,18 @@ def get_ranking(request: RankingRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return RankingResponse(results=results)
+
+@app.post("/auth/register")
+def register_user(user: UserCredentials):
+    if not create_user(user.email, user.password):
+        raise HTTPException(status_code=409, detail="Email already registered")
+    return{"message" : "User registered"}
+
+@app.post("/auth/login")
+def verify_user(user: UserCredentials):
+    if not authenticate_user(user.email, user.password):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    return{"message" : "Logged in"}
 
 @app.post("/conversations", response_model=NewConversation)
 def new_conversation():

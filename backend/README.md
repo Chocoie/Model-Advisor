@@ -75,6 +75,52 @@ Response:
 Errors: `400` if a skill name is unknown or the list is empty.
 
 
+
+## User
+### POST /auth/register
+Creates a new user.
+
+Request:
+```json
+{
+  "email": "user@example.com",
+  "password": "password"
+}
+```
+
+Response:
+```json
+{
+  "message": "User registered"
+}
+```
+
+Errors:
+- `409` if the email is already registered
+- `422` if the email is invalid, or the password is shorter than 8 or longer than 72 characters
+
+### POST /auth/login 
+Authenticates user for login
+
+Request:
+```json
+{
+  "email": "user@example.com",
+  "password": "password"
+}
+```
+
+Response:
+```json
+{
+  "message": "Logged in"
+}
+```
+
+Errors:
+- `401` if the email or password is invalid
+- `422` if the email is invalid, or the password is shorter than 8 or longer than 72 characters
+
 ### Conversations
 > Stored in memory for now: conversations are lost when the server restarts.
 > Replies come from a placeholder keyword-based agent (`chat_agent.py`) until the LLM agent is ready.
