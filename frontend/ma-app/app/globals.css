@@ -1,1 +1,15 @@
+@import "tailwindcss";
 
+@theme inline {
+    --color-gold: #dbbb5f;
+}
+
+@layer base {
+    body {
+        font-family: "Cal Sans", sans-serif;
+        background-color: black;
+        color: white;
+        border: none;
+        padding: none;
+    }
+}
