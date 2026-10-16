@@ -5,7 +5,7 @@ from pydantic import BaseModel, EmailStr, Field # object validity and python <->
 
 from user import create_user, authenticate_user, create_session, get_user_email
 from ranking_data import VALID_SKILLS, rank_skills
-from conversations import create_conversation, get_messages, add_message
+from conversations import create_conversation, get_messages, add_message, get_owner
 from chat_agent import next_action, explain_results
 
 
@@ -107,23 +107,23 @@ def valid_token(current_user: str = Depends(get_current_user)):
 
 
 @app.post("/conversations", response_model=NewConversation)
-def new_conversation():
-    conversation_id = create_conversation()
+def new_conversation(current_user = Depends(get_current_user)):
+    conversation_id = create_conversation(current_user)
     return NewConversation(conversation_id=conversation_id)
 
 @app.get("/conversations/{conversation_id}", response_model=ConversationHistory)
-def get_conversation(conversation_id: str):
-    conversation_history = get_messages(conversation_id)
-    if conversation_history is None: 
+def get_conversation(conversation_id: str, current_user = Depends(get_current_user)):
+    if get_owner(conversation_id) != current_user: # checks if convo belongs to user
         raise HTTPException(status_code=404, detail="Conversation not found")
+    conversation_history = get_messages(conversation_id)
     return ConversationHistory(conversation_id=conversation_id, messages=conversation_history)
 
 @app.post("/conversations/{conversation_id}/message", response_model=MessageResponse)
-def send_message(conversation_id: str, request: MessageRequest):
-    if get_messages(conversation_id) is None:
+def send_message(conversation_id: str, request: MessageRequest, current_user = Depends(get_current_user)):
+    if get_owner(conversation_id) != current_user:   # checks if convo belongs to user
         raise HTTPException(status_code=404, detail="Conversation not found")
-    add_message(conversation_id, "user", request.message) #add user msg to conv
     conversation_history = get_messages(conversation_id)
+    add_message(conversation_id, "user", request.message) #add user msg to conv
     action = next_action(conversation_history) # get chat agent next action
 
     if action["type"] == "question":

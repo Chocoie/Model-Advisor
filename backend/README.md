@@ -140,6 +140,7 @@ Errors:
 - `401` if the token is invalid
 - `403` if the header is missing
 
+
 ### Conversations
 > Stored in memory for now: conversations are lost when the server restarts.
 > Replies come from a placeholder keyword-based agent (`chat_agent.py`) until the LLM agent is ready.
