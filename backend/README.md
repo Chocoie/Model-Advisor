@@ -75,7 +75,6 @@ Response:
 Errors: `400` if a skill name is unknown or the list is empty.
 
 
-
 ## User
 ### POST /auth/register
 Creates a new user.
@@ -113,13 +112,33 @@ Request:
 Response:
 ```json
 {
-  "message": "Logged in"
+  "token": "sxgnvJSPIM17ND4Xy_2fLxt3lIsoqI8cuqhhueHS2II",
+  "email": "user@example.com"
 }
 ```
 
 Errors:
 - `401` if the email or password is invalid
 - `422` if the email is invalid, or the password is shorter than 8 or longer than 72 characters
+
+### GET /auth/me
+Returns the email of the logged-in user. Useful to check if a saved token is still valid.
+
+Request header:
+```
+Authorization: Bearer <token>
+```
+
+Response:
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+Errors:
+- `401` if the token is invalid
+- `403` if the header is missing
 
 ### Conversations
 > Stored in memory for now: conversations are lost when the server restarts.
@@ -175,5 +194,8 @@ Response (recommendation):
 `results` uses the same format as `/rankings`.
 
 Errors: `404` if the conversation doesn't exist.
+
+
+Note: users, tokens and conversations are stored in memory for now, so they are lost when the server restarts.
 
 Full interactive docs: http://localhost:8000/docs

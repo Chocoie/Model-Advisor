@@ -1,14 +1,16 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field # object validity and python <-> json 
 
-from user import create_user, authenticate_user
+from user import create_user, authenticate_user, create_session, get_user_email
 from ranking_data import VALID_SKILLS, rank_skills
 from conversations import create_conversation, get_messages, add_message
 from chat_agent import next_action, explain_results
 
 
 app = FastAPI()
+bearer = HTTPBearer()
 
 # Allow the frontend (Next.js runs on port 3000) to call this backend
 app.add_middleware(
@@ -60,6 +62,13 @@ class MessageResponse(BaseModel):
     skills: list[str] = []
     results: list[ModelRanking] = []
 
+# --- Helper ---
+
+def get_current_user(credentials: HTTPAuthorizationCredentials=Depends(bearer)):
+    email = get_user_email(credentials.credentials)
+    if email is None:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return email
 
 # --- Endpoints ---
 
@@ -89,7 +98,13 @@ def register_user(user: UserCredentials):
 def verify_user(user: UserCredentials):
     if not authenticate_user(user.email, user.password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    return{"message" : "Logged in"}
+    token = create_session(user.email)
+    return {"token": token,"email" : user.email}
+
+@app.get("/auth/me")
+def valid_token(current_user: str = Depends(get_current_user)):
+    return {"email": current_user}
+
 
 @app.post("/conversations", response_model=NewConversation)
 def new_conversation():

@@ -1,7 +1,8 @@
 import bcrypt
+import secrets
 
-#{{"email": hash_password}, ...}
-USERS = {} # TODO delete when db ready and replace related action with queries
+USERS = {} # Shape: {email: password_hash} TODO replace with db
+SESSIONS = {}   # Shape: {token: email}   TODO replace with db
 
 def create_user(email: str, password: str):
     """ Create new user with email and hashed password"""
@@ -16,3 +17,13 @@ def authenticate_user(email : str, password: str):
     if email not in USERS:
         return False
     return bcrypt.checkpw(password.encode(), USERS[email])
+
+def create_session(email: str):
+    """ Creates a token for user"""
+    token = secrets.token_urlsafe(32)
+    SESSIONS[token] = email
+    return token
+
+def get_user_email(token: str):
+    """ Returns email linked to token"""
+    return SESSIONS.get(token)
