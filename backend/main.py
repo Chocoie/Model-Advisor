@@ -3,7 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field # object validity and python <-> json 
 
-from user import create_user, authenticate_user, create_session, get_user_email
+from user import create_user, authenticate_user, create_session, end_session, get_user_email
 from ranking_data import VALID_SKILLS, rank_skills
 from conversations import create_conversation, get_messages, add_message, get_owner
 from chat_agent import next_action, explain_results
@@ -27,16 +27,10 @@ class UserCredentials(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=72)
 
-# --- Messages ---
-# A user message (used by /message and the conversation endpoint)
+# --- Messages (1) ---
+# A user message 
 class MessageRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
-
-# LLM response: skills/results stay empty when it's a follow-up question
-class MessageResponse(BaseModel):
-    reply: str
-    skills: list[str] = []
-    results: list[ModelRanking] = []
 
 # --- Rankings ---
 class RankingRequest(BaseModel): # Top n models ranking request
@@ -50,6 +44,13 @@ class ModelRanking(BaseModel): # One model only
 
 class RankingResponse(BaseModel): #  Top n models results
     results: list[ModelRanking]  # [{model, avg_rank, scores}, {...}]
+
+# --- Message (2) ---
+# LLM response: skills/results stay empty when it's a follow-up question
+class MessageResponse(BaseModel):
+    reply: str
+    skills: list[str] = []
+    results: list[ModelRanking] = []
 
 # --- Conversations ---
 class NewConversation(BaseModel):
@@ -96,11 +97,17 @@ def register_user(user: UserCredentials):
     return{"message" : "User registered"}
 
 @app.post("/auth/login")
-def verify_user(user: UserCredentials):
+def user_login(user: UserCredentials):
     if not authenticate_user(user.email, user.password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     token = create_session(user.email)
     return {"token": token,"email" : user.email}
+
+@app.post("/auth/logout")
+def user_logout(credentials: HTTPAuthorizationCredentials = Depends(bearer)):
+    if end_session(credentials.credentials) is None:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return {"message": "Logged out"}
 
 @app.get("/auth/me")
 def valid_token(current_user: str = Depends(get_current_user)):
@@ -125,8 +132,8 @@ def send_message(conversation_id: str, request: MessageRequest,
                  current_user = Depends(get_current_user)):
     if get_owner(conversation_id) != current_user:   # checks if convo belongs to user
         raise HTTPException(status_code=404, detail="Conversation not found")
-    conversation_history = get_messages(conversation_id)
     add_message(conversation_id, "user", request.message) #add user msg to conv
+    conversation_history = get_messages(conversation_id)
     action = next_action(conversation_history) # get chat agent next action
 
     if action["type"] == "question":
