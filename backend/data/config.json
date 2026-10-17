@@ -1,6 +1,4 @@
 {
-  "host": "127.0.0.1",
-  "port": 8080,
   "backend": {
     "base_url": "https://ollama.com/v1",
     "api_key": "env:OLLAMA_API_KEY",

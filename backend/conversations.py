@@ -14,7 +14,6 @@ def get_owner(conversation_id):
         return None
     return conversation["owner"]
 
-
 def get_messages(conversation_id):
     conversation = CONVERSATIONS.get(conversation_id) 
     if conversation is None:

@@ -20,6 +20,7 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
+# ---- 1. Class using Pydantic BaseModel --------------------------------------
 
 # --- User ---
 class UserCredentials(BaseModel):
@@ -27,9 +28,15 @@ class UserCredentials(BaseModel):
     password: str = Field(min_length=8, max_length=72)
 
 # --- Messages ---
-# # A user message (used by /message and the conversation endpoint)
+# A user message (used by /message and the conversation endpoint)
 class MessageRequest(BaseModel):
-    message: str
+    message: str = Field(min_length=1, max_length=2000)
+
+# LLM response: skills/results stay empty when it's a follow-up question
+class MessageResponse(BaseModel):
+    reply: str
+    skills: list[str] = []
+    results: list[ModelRanking] = []
 
 # --- Rankings ---
 class RankingRequest(BaseModel): # Top n models ranking request
@@ -56,13 +63,7 @@ class ConversationHistory(BaseModel):
     conversation_id: str
     messages: list[Message]
 
-# Reply in a conversation: skills/results stay empty when it's a follow-up question
-class MessageResponse(BaseModel):
-    reply: str
-    skills: list[str] = []
-    results: list[ModelRanking] = []
-
-# --- Helper ---
+# ----- 2. Helper functions ---------------------------------------------------
 
 def get_current_user(credentials: HTTPAuthorizationCredentials=Depends(bearer)):
     email = get_user_email(credentials.credentials)
@@ -70,7 +71,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials=Depends(bearer)):
         raise HTTPException(status_code=401, detail="Invalid token")
     return email
 
-# --- Endpoints ---
+# ----- 3. Endpoints ----------------------------------------------------------
 
 @app.get("/health")
 def health():
@@ -105,21 +106,23 @@ def verify_user(user: UserCredentials):
 def valid_token(current_user: str = Depends(get_current_user)):
     return {"email": current_user}
 
-
 @app.post("/conversations", response_model=NewConversation)
 def new_conversation(current_user = Depends(get_current_user)):
     conversation_id = create_conversation(current_user)
     return NewConversation(conversation_id=conversation_id)
 
 @app.get("/conversations/{conversation_id}", response_model=ConversationHistory)
-def get_conversation(conversation_id: str, current_user = Depends(get_current_user)):
+def get_conversation(conversation_id: str, 
+                     current_user = Depends(get_current_user)):
     if get_owner(conversation_id) != current_user: # checks if convo belongs to user
         raise HTTPException(status_code=404, detail="Conversation not found")
     conversation_history = get_messages(conversation_id)
     return ConversationHistory(conversation_id=conversation_id, messages=conversation_history)
 
-@app.post("/conversations/{conversation_id}/message", response_model=MessageResponse)
-def send_message(conversation_id: str, request: MessageRequest, current_user = Depends(get_current_user)):
+@app.post("/conversations/{conversation_id}/message", 
+          response_model=MessageResponse)
+def send_message(conversation_id: str, request: MessageRequest,
+                 current_user = Depends(get_current_user)):
     if get_owner(conversation_id) != current_user:   # checks if convo belongs to user
         raise HTTPException(status_code=404, detail="Conversation not found")
     conversation_history = get_messages(conversation_id)

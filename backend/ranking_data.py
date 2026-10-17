@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 DATA_DIR = Path(__file__).parent / "data"
-
+# ----- 1. Data loading and processing ----------------------------------------
 def load_json(name):
     """ Load a JSON file from data/ and return it as Python dicts/lists."""
     with open(DATA_DIR/ name, encoding="utf-8") as f:
@@ -83,6 +83,8 @@ def build_score_table():
 
 SCORES = build_score_table()
 
+# ----- 2. Skill score ----------------------------------------
+
 def datasets_for_skill(skill):
     """ Return the names of every dataset that tests this skill. """
     return [row["Dataset"] for row in MAPPING if row["Skill"] == skill]
@@ -99,6 +101,8 @@ def skill_score(model, skill):
         if all(k in SCORES[model] for k in score_keys): # if this model has a score for every key of this dataset
             total += sum(SCORES[model][k] for k in score_keys) / len(score_keys)
     return total
+
+# ----- 3. Skill ranking ----------------------------------------
 
 def rank_skill(skill):
     """ 

@@ -1,24 +1,17 @@
 """
-llm_classifier.py: Mattias's skill classifier, copied from the chatbot
+llm_classifier.py: llm's team skill classifier, copied from the chatbot
 branch (modelavisorchatbot-main/server.py).
 
-Changes from his version:
+Changes from llm's version:
   - TAXONOMY is built from Faria's dataset-skill mapping (ranking_data.MAPPING)
     instead of taxonomy.json, so the skill list always matches the ranking data
   - load_json comes from ranking_data
+  - skill lookup wrapped in build_skill_lookup(); CAP_LOOKUP, canonical_capability
+    and SKILL_TO_CAP removed (the capability comes from SKILL_LOOKUP)
+  - call_llm's retry reuses payload instead of copying it again
+  - extract_json simplified (find/rfind already skip code-block markers)
   - the get_recommendations calls were removed (ranking_data.py ranks models)
   - the web-server parts (Handler, run, index.html) were left out (FastAPI does that)
-Everything else is his code, unchanged.
-
-Entry point: classify(messages) -> (result, content, error)
-  result["type"] == "question" -> result["text"] is the question to ask
-  result["type"] == "answer"   -> result["skills"] is the list of skills
-chat_agent.py's next_action() converts this into our contract.
-
-Mode is set by "classifier" in data/config.json:
-  "local" = keywords only, no API calls
-  "llm"   = uses the LLM (needs OLLAMA_API_KEY in backend/data/.env)
-or "llm" (needs OLLAMA_API_KEY in backend/data/.env or the environment).
 """
 
 import json
@@ -39,18 +32,19 @@ CONFIG = load_json("config.json")
 
 
 def build_taxonomy():
-    """Group the skills by capability from Faria's mapping, in the shape his code expects:
+    """Group the skills by capability from Faria's mapping, in the shape:
     {"capabilities": [{"name": capability, "skills": [skill, ...]}, ...]}"""
     groups = {}
     for row in MAPPING:
-        skills = groups.setdefault(row["Capability"], [])
+        skills = groups.setdefault(row["Capability"], []) 
         if row["Skill"] not in skills:
             skills.append(row["Skill"])
-    return {"capabilities": [{"name": cap, "skills": skills} for cap, skills in groups.items()]}
+    return {"capabilities": [{"name": cap, "skills": skills} 
+                             for cap, skills in groups.items()]}
 
 
 TAXONOMY = build_taxonomy()
-KEYWORDS = load_json("keywords.json")   # his keyword lists (no equivalent in Faria's data)
+KEYWORDS = load_json("keywords.json")
 
 # ---- 2. skill name lookups (checks the LLM's skill names are real) ------------
 
@@ -59,32 +53,34 @@ def norm(s):
     return re.sub(r"\s+", " ", str(s).strip().lower())
 
 
-# Lookup tables for validating the model's output against the real taxonomy.
-SKILL_LOOKUP = {}
-CAP_LOOKUP = {}
-for cap in TAXONOMY["capabilities"]:
-    CAP_LOOKUP[norm(cap["name"])] = cap["name"]
-    for skill in cap["skills"]:
-        SKILL_LOOKUP[norm(skill)] = (skill, cap["name"])
+def build_skill_lookup():
+    """ 
+    Build skill lookup tables for validating the model's output against the 
+    real taxonomy.
+    """
+    skill_lookup = {}
+    for cap in TAXONOMY["capabilities"]:
+        for skill in cap["skills"]:
+            skill_lookup[norm(skill)] = (skill, cap["name"])
+    return skill_lookup
 
+SKILL_LOOKUP = build_skill_lookup()
 
+    
 def canonical_skill(s):
+    """ Looks up normalized skill in SKILL_LOOKUP"""
     return SKILL_LOOKUP.get(norm(s))
 
 
-def canonical_capability(s):
-    return CAP_LOOKUP.get(norm(s))
-
-
-SKILL_TO_CAP = {}
-for _cap in TAXONOMY["capabilities"]:
-    for _skill in _cap["skills"]:
-        SKILL_TO_CAP[_skill] = _cap["name"]
-
-
 # ---- 3. API key (from data/.env or the environment) --------------------------
+# Could replace with: 
+# load_dotenv(BASE_DIR / ".env") -> from dotenv import load_dotenv
 
 def _load_env_file():
+    """
+    Load KEY=value lines from data/.env into environment variables.
+    Does nothing if there is no .env file.
+    """
     path = os.path.join(BASE_DIR, ".env")
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -103,13 +99,20 @@ def _load_env_file():
 
 _load_env_file()
 
+# API key: one shared Ollama key on the server is used for every user
+# _request / get_api_key are set so each user could add their own key. (not used rn)
+# TODO:
+#   - if we get GPU access on the lab server: no key is needed.
+#   - if not: keep the shared key, and maybe let users add their own key
+#     once the shared quota runs out
 
-# Per-request key supplied by the browser (X-Api-Key header). Held in memory
-# for the duration of the request only; never written to disk or logged.
 _request = threading.local()
 
-
 def get_api_key():
+    """
+    Return the key for the current request: the user's own key if one was set
+    on _request, otherwise the shared server key.
+    """
     user_key = getattr(_request, "key", "")
     if user_key:
         return user_key
@@ -117,6 +120,9 @@ def get_api_key():
 
 
 def get_server_key():
+    """
+    Return the shared server key. "api_key" in config.json.
+    """
     key = CONFIG["backend"].get("api_key", "")
     if isinstance(key, str) and key.startswith("env:"):
         return os.environ.get(key[4:], "") or ""
@@ -124,6 +130,10 @@ def get_server_key():
 
 
 def _headers():
+    """
+    HTTP headers for the LLM request: JSON content type, plus
+    "Authorization: Bearer <key>" when a key is available.
+    """
     h = {"Content-Type": "application/json"}
     key = get_api_key()
     if key:
@@ -134,6 +144,11 @@ def _headers():
 # ---- 4. the LLM: instructions, call, and checking its reply -------------------
 
 def build_system_prompt():
+    """
+    Build the instructions sent to the LLM before the conversation:
+    its role, the 34 skills grouped by capability (from TAXONOMY), the rules,
+    and the exact JSON reply format ("question" or "answer").
+    """
     lines = [
         "You are a strict categorization assistant. Your ONLY job is:",
         "1) Talk briefly with the user to understand what they are evaluating, and",
@@ -167,12 +182,17 @@ def build_system_prompt():
 
 
 def call_llm(messages):
+    """
+    Send the conversation to the LLM and return its reply text.
+    First asks for a JSON-only reply; if the server rejects that option, retries once without it.
+    """
     lm = CONFIG["backend"]
     url = lm["base_url"].rstrip("/") + "/chat/completions"
     if url.startswith("https") and not get_api_key():
         raise ValueError(
             "No API key set. Click \"API key\" in the header to add your own "
             "Ollama key, or set OLLAMA_API_KEY in .env on the server.")
+    
     payload = {
         "model": lm.get("model", "local-model"),
         "messages": messages,
@@ -183,17 +203,19 @@ def call_llm(messages):
 
     body = dict(payload)
     body["response_format"] = {"type": "json_object"}
+
+    # prepare request to send llm
     req = urllib.request.Request(
         url, data=json.dumps(body).encode("utf-8"), headers=_headers(),
     )
+    # send request
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             resp = json.loads(r.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
+    except urllib.error.HTTPError:
         # Some engines reject response_format; retry without it.
-        body = dict(payload)
         req = urllib.request.Request(
-            url, data=json.dumps(body).encode("utf-8"), headers=_headers(),
+            url, data=json.dumps(payload).encode("utf-8"), headers=_headers(),
         )
         with urllib.request.urlopen(req, timeout=timeout) as r:
             resp = json.loads(r.read().decode("utf-8"))
@@ -202,12 +224,10 @@ def call_llm(messages):
 
 
 def extract_json(text):
-    """Pull the first balanced JSON object out of a model response."""
+    """Find the JSON object in an LLM reply (from the first { to the last })
+    and turn it into a dict. Text or code-block markers around it are ignored.
+    Returns (dict, None) on success, or (None, error message)."""
     t = (text or "").strip()
-    if t.startswith("```"):
-        t = t.strip("`").strip()
-        if t.lower().startswith("json"):
-            t = t[4:].strip()
     start = t.find("{")
     end = t.rfind("}")
     if start == -1 or end == -1 or end <= start:
@@ -219,22 +239,31 @@ def extract_json(text):
 
 
 def validate_and_normalize_answer(ans):
+    """
+    ans = {"type": "answer", "skills": ["summarization", ...], 
+    "confidence": 0.9, "summary": "..."} from extract_json()
+    """
+
+    # extract skills into raw_skills, if str -> convert to list
     raw_skills = ans.get("skills")
     if isinstance(raw_skills, str):
         raw_skills = [raw_skills]
     if not raw_skills:
         raw_skills = [ans.get("skill", "")]
 
+    # if normalized skill in SKILL_LOOKUP and not in set seen, 
+    # add to seen and add to skills
     skills = []
     seen = set()
     for name in raw_skills:
         got = canonical_skill(name)
         if got:
             canon_skill = got[0]
-            if canon_skill not in seen:
+            if canon_skill not in seen: #no repeats
                 seen.add(canon_skill)
                 skills.append(canon_skill)
 
+    # message sent to llm
     if not skills:
         msg = ("Your 'skills' are not in the taxonomy. Use EXACT skill names from "
                "the list and respond again with a valid 'answer' JSON object.")
@@ -242,19 +271,23 @@ def validate_and_normalize_answer(ans):
 
     ans["skills"] = skills
     ans["skill"] = skills[0]
-    ans["capability"] = SKILL_TO_CAP[skills[0]]
+    ans["capability"] = canonical_skill(skills[0])[1]
     try:
         conf = float(ans.get("confidence", 0.5))
         ans["confidence"] = max(0.0, min(1.0, conf))
     except (TypeError, ValueError):
         ans["confidence"] = 0.5
     ans["summary"] = str(ans.get("summary", "")).strip()
-    return True, None
+    return True, None # Valid answer, no error msg
 
 
 # ---- 5. local keyword classifier (no API) and harm filter ---------------------
 
 def use_local_classifier():
+    """ 
+    If config has no "classifier" key, default is "local". If classifier is
+    local, return true.
+    """
     return CONFIG.get("classifier", "local") == "local"
 
 
@@ -314,7 +347,7 @@ def classify_local(messages):
         "type": "answer",
         "skills": skills,
         "skill": skills[0],
-        "capability": SKILL_TO_CAP[skills[0]],
+        "capability": canonical_skill(skills[0])[1],
         "confidence": round(min(0.95, 0.35 + 0.15 * top), 2),
         "summary": "Matched on: " + ", ".join(
             sorted({k for s in skills for k in matched[s]}) or skills),
