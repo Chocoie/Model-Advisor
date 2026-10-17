@@ -166,6 +166,22 @@ Response:
 Errors:
 - `401` if the token is missing or invalid
 
+### GET /conversations
+Lists the logged-in user's conversations. The title is the first message (first 50 characters), or "New Conversation" if it's empty.
+
+Response:
+```json
+{
+  "conversations": [
+    {"conversation_id": "3bde8170-cab8-428e-88fd-1b551fa9c391", "title": "I need a model for customer support"},
+    {"conversation_id": "a91c22e4-5b0f-4c1e-9d2a-7f3e8b6c1d00", "title": "New Conversation"}
+  ]
+}
+```
+
+Errors:
+- `401` if the token is missing or invalid
+
 ### GET /conversations/{conversation_id}
 Returns the full message history.
 

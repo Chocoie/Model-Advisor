@@ -25,3 +25,17 @@ def add_message(conversation_id, role, content):
     if conversation is None:
         return None
     conversation["messages"].append({"role": role, "content": content})
+
+
+def list_conversations(owner):
+    conversation_list = []
+    for conversation_id, conversation in CONVERSATIONS.items():
+        if conversation["owner"] == owner:
+            if not conversation["messages"]:
+                title = "New Conversation"
+            else:
+                title = conversation["messages"][0]["content"][:50]
+            conversation_list.append({"conversation_id": conversation_id, "title": title})
+    return conversation_list
+
+

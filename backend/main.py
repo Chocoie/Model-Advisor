@@ -5,7 +5,7 @@ from pydantic import BaseModel, EmailStr, Field # object validity and python <->
 
 from user import create_user, authenticate_user, create_session, end_session, get_user_email
 from ranking_data import VALID_SKILLS, rank_skills
-from conversations import create_conversation, get_messages, add_message, get_owner
+from conversations import create_conversation, get_messages, add_message, get_owner, list_conversations
 from chat_agent import next_action, explain_results
 
 
@@ -64,6 +64,12 @@ class ConversationHistory(BaseModel):
     conversation_id: str
     messages: list[Message]
 
+class ConversationSummary(BaseModel):
+    conversation_id: str
+    title: str 
+
+class ConversationsList(BaseModel):
+    conversations: list[ConversationSummary]
 # ----- 2. Helper functions ---------------------------------------------------
 
 def get_current_user(credentials: HTTPAuthorizationCredentials=Depends(bearer)):
@@ -118,6 +124,10 @@ def new_conversation(current_user = Depends(get_current_user)):
     conversation_id = create_conversation(current_user)
     return NewConversation(conversation_id=conversation_id)
 
+@app.get("/conversations", response_model=ConversationsList)
+def get_conversations_list(current_user: str = Depends(get_current_user)):
+    return ConversationsList(conversations=list_conversations(current_user))
+    
 @app.get("/conversations/{conversation_id}", response_model=ConversationHistory)
 def get_conversation(conversation_id: str, 
                      current_user = Depends(get_current_user)):
