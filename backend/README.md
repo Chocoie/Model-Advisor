@@ -20,6 +20,40 @@ uvicorn main:app --reload
 ```
 Then open http://localhost:8000/docs
 
+
+### Database (PostgreSQL)
+`db.py` connects to PostgreSQL. The endpoints don't use it yet (data is still in memory), but `db.py` needs this to run.
+
+1. Install PostgreSQL and start it (Fedora):
+```bash
+sudo dnf install postgresql-server postgresql
+sudo postgresql-setup --initdb
+sudo systemctl enable --now postgresql
+```
+  On Fedora, also open `/var/lib/pgsql/data/pg_hba.conf`, change `ident` to `scram-sha-256` on the `host` lines for `127.0.0.1/32` and `::1/128`, then run `sudo systemctl restart postgresql`.
+
+2. Create a user and a database:
+```bash
+sudo -u postgres psql
+```
+```sql
+CREATE USER modeladvisor WITH PASSWORD 'your_password';
+CREATE DATABASE modeladvisor OWNER modeladvisor;
+\q
+```
+
+3. Add the connection URL to `data/.env`:
+```
+  DATABASE_URL=postgresql://modeladvisor:your_password@localhost:5432/modeladvisor
+```
+  Avoid `@`, `:` and `/` in the password, since they break the URL.
+
+4. Test the connection (from `backend/`, venv active):
+```bash
+python -c "import db; print(db.get_connection().execute('SELECT 1').fetchone())"
+```
+  It should print `(1,)`.
+  
 ## Endpoints
 
 ### GET /health
