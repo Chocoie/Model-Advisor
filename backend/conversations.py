@@ -1,3 +1,10 @@
+"""
+conversations.py: conversation history.
+
+Each conversation has an owner (the user's email) and a list of messages
+({"role": "user" or "assistant", "content": text}).
+"""
+
 import uuid
 
 # Shape: {conversation_id: {"owner": email, "messages": [{"role": "user", "content": "..."}, ...]}}
@@ -25,7 +32,6 @@ def add_message(conversation_id, role, content):
     if conversation is None:
         return None
     conversation["messages"].append({"role": role, "content": content})
-
 
 def list_conversations(owner):
     conversation_list = []

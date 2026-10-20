@@ -21,18 +21,16 @@ import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
-from ranking_data import load_json, MAPPING
+from process_ranking_data import load_json, MAPPING
 
 # ---- 1. settings, skill list and keywords (ours) ------------------------------
 
 # .env (API key) is read from backend/data
 BASE_DIR = Path(__file__).parent / "data"
-
 CONFIG = load_json("config.json") 
 
-
 def build_taxonomy():
-    """Group the skills by capability from Faria's mapping, in the shape:
+    """Group the skills by capability from MAPPING, in the shape:
     {"capabilities": [{"name": capability, "skills": [skill, ...]}, ...]}"""
     groups = {}
     for row in MAPPING:
@@ -42,7 +40,6 @@ def build_taxonomy():
     return {"capabilities": [{"name": cap, "skills": skills} 
                              for cap, skills in groups.items()]}
 
-
 TAXONOMY = build_taxonomy()
 KEYWORDS = load_json("keywords.json")
 
@@ -51,7 +48,6 @@ KEYWORDS = load_json("keywords.json")
 def norm(s):
     """Normalize a string for case/whitespace-insensitive matching."""
     return re.sub(r"\s+", " ", str(s).strip().lower())
-
 
 def build_skill_lookup():
     """ 
@@ -66,11 +62,9 @@ def build_skill_lookup():
 
 SKILL_LOOKUP = build_skill_lookup()
 
-    
 def canonical_skill(s):
     """ Looks up normalized skill in SKILL_LOOKUP"""
     return SKILL_LOOKUP.get(norm(s))
-
 
 # ---- 3. API key (from data/.env or the environment) --------------------------
 # Could replace with: 
@@ -96,7 +90,6 @@ def _load_env_file():
     except FileNotFoundError:
         pass
 
-
 _load_env_file()
 
 # API key: one shared Ollama key on the server is used for every user
@@ -118,7 +111,6 @@ def get_api_key():
         return user_key
     return get_server_key()
 
-
 def get_server_key():
     """
     Return the shared server key. "api_key" in config.json.
@@ -127,7 +119,6 @@ def get_server_key():
     if isinstance(key, str) and key.startswith("env:"):
         return os.environ.get(key[4:], "") or ""
     return key or os.environ.get("OLLAMA_API_KEY", "") or os.environ.get("OPENAI_API_KEY", "")
-
 
 def _headers():
     """
@@ -139,7 +130,6 @@ def _headers():
     if key:
         h["Authorization"] = "Bearer " + key
     return h
-
 
 # ---- 4. the LLM: instructions, call, and checking its reply -------------------
 
@@ -179,7 +169,6 @@ def build_system_prompt():
         "- 'confidence' is a number between 0.0 and 1.0.",
     ]
     return "\n".join(lines)
-
 
 def call_llm(messages):
     """
@@ -221,7 +210,6 @@ def call_llm(messages):
             resp = json.loads(r.read().decode("utf-8"))
 
     return resp["choices"][0]["message"]["content"]
-
 
 def extract_json(text):
     """Find the JSON object in an LLM reply (from the first { to the last })
@@ -290,13 +278,11 @@ def use_local_classifier():
     """
     return CONFIG.get("classifier", "local") == "local"
 
-
 DECLINE_TEXT = (
     "I can't help with that. I won't recommend models for causing harm or getting "
     "around their safeguards. If you're evaluating safety, describe it as a "
     "robustness task, e.g. \"which model best resists harmful or jailbreak "
     "requests\" or \"most harmless content generation\".")
-
 
 def is_harm_seeking(text):
     """True for clearly harm-seeking or safeguard-evading requests.
@@ -307,7 +293,6 @@ def is_harm_seeking(text):
     if re.search(KEYWORDS.get("_safety_eval_words", "$^"), text):
         return False
     return any(re.search(p, text) for p in KEYWORDS.get("_harm_patterns", []))
-
 
 def classify_local(messages):
     """Match the latest user message to skills with keyword scoring. No API calls.
@@ -354,7 +339,6 @@ def classify_local(messages):
     }
     clean = {k: v for k, v in ans.items() if k != "recommendations"}
     return ans, json.dumps(clean), None
-
 
 # ---- 6. main entry point -------------------------------------------------------
 

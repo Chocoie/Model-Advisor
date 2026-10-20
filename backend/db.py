@@ -1,3 +1,10 @@
+"""
+db.py: connection to PostgreSQL.
+
+Reads DATABASE_URL from data/.env. Use it as:
+    with get_connection() as conn: ...
+"""
+
 import psycopg
 import os
 from pathlib import Path

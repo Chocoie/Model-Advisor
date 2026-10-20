@@ -32,7 +32,6 @@ def next_action(history):
     if result["type"] == "answer":
         return {"type": "ready", "skills": result["skills"]}
 
-
 def explain_results(skills, results):
     """
     Build the reply shown with the rankings: the plain list, plus a short
@@ -57,7 +56,6 @@ def explain_results(skills, results):
         return plain
     except Exception:
         return plain                           # API down or no key
-    
 
 def plain_list(skills, results):
     """Format the detected skills and top-ranked models as a plain text list."""

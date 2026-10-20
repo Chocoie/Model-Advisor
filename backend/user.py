@@ -1,3 +1,10 @@
+"""
+user.py: user accounts and login sessions.
+
+Passwords are hashed with bcrypt, emails are stored in lowercase.
+Login creates a random session token; logout deletes it.
+"""
+
 import bcrypt
 import secrets
 

@@ -1,13 +1,21 @@
+"""
+main.py: the FastAPI app. Defines the Pydantic models for requests and
+responses and all the endpoints (see README for details).
+
+Run: uvicorn main:app --reload  ->  docs at http://localhost:8000/docs
+"""
+
+#imports
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field # object validity and python <-> json 
 
 from user import create_user, authenticate_user, create_session, end_session, get_user_email
-from ranking_data import VALID_SKILLS, rank_skills
+from process_ranking_data import VALID_SKILLS
+from ranking_data import rank_skills
 from conversations import create_conversation, get_messages, add_message, get_owner, list_conversations
 from chat_agent import next_action, explain_results
-
 
 app = FastAPI()
 bearer = HTTPBearer()
@@ -21,7 +29,6 @@ app.add_middleware(
 )
 
 # ---- 1. Class using Pydantic BaseModel --------------------------------------
-
 # --- User ---
 class UserCredentials(BaseModel):
     email: EmailStr
@@ -70,6 +77,7 @@ class ConversationSummary(BaseModel):
 
 class ConversationsList(BaseModel):
     conversations: list[ConversationSummary]
+
 # ----- 2. Helper functions ---------------------------------------------------
 
 def get_current_user(credentials: HTTPAuthorizationCredentials=Depends(bearer)):

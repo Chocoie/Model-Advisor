@@ -1,7 +1,16 @@
 ## Setup
+
+**Linux / macOS:**
 ```bash
 python3 -m venv venv
 source venv/bin/activate
+pip install -r requirements.txt
+```
+
+**Windows:**
+```bash
+python -m venv venv
+venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
@@ -14,28 +23,40 @@ The chat uses the LLM team's skill classifier (`llm_classifier.py`). The mode is
 ```
   If the LLM is unreachable or there's no key, the chat falls back to keyword matching. `.env` is ignored by git, so never commit your key.
 
-## Run
-```bash
-uvicorn main:app --reload
-```
-Then open http://localhost:8000/docs
-
-
 ### Database (PostgreSQL)
 `db.py` connects to PostgreSQL. The endpoints don't use it yet (data is still in memory), but `db.py` needs this to run.
 
-1. Install PostgreSQL and start it (Fedora):
+1. Install PostgreSQL and start it:
+
+**Ubuntu / Debian:**
+```bash
+sudo apt install postgresql
+sudo systemctl enable --now postgresql
+```
+
+**Fedora:**
 ```bash
 sudo dnf install postgresql-server postgresql
 sudo postgresql-setup --initdb
 sudo systemctl enable --now postgresql
 ```
-  On Fedora, also open `/var/lib/pgsql/data/pg_hba.conf`, change `ident` to `scram-sha-256` on the `host` lines for `127.0.0.1/32` and `::1/128`, then run `sudo systemctl restart postgresql`.
+  Also open `/var/lib/pgsql/data/pg_hba.conf`, change `ident` to `scram-sha-256` on the `host` lines for `127.0.0.1/32` and `::1/128`, then run `sudo systemctl restart postgresql`.
 
-2. Create a user and a database:
+**macOS (Homebrew):**
 ```bash
-sudo -u postgres psql
+brew install postgresql@16
+brew services start postgresql@16
 ```
+
+**Windows:**
+Download the installer from https://www.postgresql.org/download/windows/ and run it. It asks you to set a password for the `postgres` admin user, so remember it. PostgreSQL then starts automatically as a Windows service.
+
+2. Create a user and a database. Open `psql`:
+- Linux: `sudo -u postgres psql`
+- macOS: `psql postgres`
+- Windows: open **SQL Shell (psql)** from the Start menu, press Enter for the defaults, and type the `postgres` password you set during install
+
+then run:
 ```sql
 CREATE USER modeladvisor WITH PASSWORD 'your_password';
 CREATE DATABASE modeladvisor OWNER modeladvisor;
@@ -53,7 +74,13 @@ CREATE DATABASE modeladvisor OWNER modeladvisor;
 python -c "import db; print(db.get_connection().execute('SELECT 1').fetchone())"
 ```
   It should print `(1,)`.
-  
+
+  ## Run
+```bash
+uvicorn main:app --reload
+```
+Then open http://localhost:8000/docs
+
 ## Endpoints
 
 ### GET /health
@@ -133,7 +160,7 @@ Checks the email and password and returns a token. Send the token with requests 
 Request:
 ```json
 {
-  "email": "user@example.com",
+  "email": "User@example.com",
   "password": "password"
 }
 ```
@@ -142,7 +169,7 @@ Response:
 ```json
 {
   "token": "sxgnvJSPIM17ND4Xy_2fLxt3lIsoqI8cuqhhueHS2II",
-  "email": "user@example.com"
+  "email": "User@example.com"
 }
 ```
 
