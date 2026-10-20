@@ -135,7 +135,7 @@ Errors:
 ## User
 
 ### POST /auth/register
-Creates a new user.
+Creates a new user and logs them in. The returned token works the same as the one from `/auth/login`.
 
 Request:
 ```json
@@ -147,7 +147,11 @@ Request:
 
 Response:
 ```json
-{"message": "User registered"}
+{
+  "message": "User registered",
+  "token": "sxgnvJSPIM17ND4Xy_2fLxt3lIsoqI8cuqhhueHS2II",
+  "email": "user@example.com"
+}
 ```
 
 Errors:

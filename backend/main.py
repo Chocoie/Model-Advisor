@@ -108,7 +108,8 @@ def get_ranking(request: RankingRequest):
 def register_user(user: UserCredentials):
     if not create_user(user.email, user.password):
         raise HTTPException(status_code=409, detail="Email already registered")
-    return{"message" : "User registered"}
+    token = create_session(user.email)
+    return{"message" : "User registered", "token": token, "email": user.email}
 
 @app.post("/auth/login")
 def user_login(user: UserCredentials):
