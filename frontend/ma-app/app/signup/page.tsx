@@ -1,8 +1,7 @@
 "use client";
-import { useState } from 'react';
+import { useState, type ChangeEvent, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from "next/link";
-import axios from 'axios';
 
 export default function SignUp() 
 {
@@ -10,40 +9,23 @@ export default function SignUp()
     const[email, setEmail] = useState("");
     const[password, setPassword] = useState("");
     const[password2, setPassword2] = useState("");
-    const[userType, setUserType] = useState("");
-    const[isEmailTaken, setIsEmailTaken] = useState(false);
+    //const[userType, setUserType] = useState("");
     const[error, setError] = useState("");
 
-    // add new user by sending user info to backend
-    async function addUser()
-    {
-        // may need to change later based on backend json
-        let doc = {
-            email: email,
-            password: password,
-            uType: userType
-        }
+    const router = useRouter();
 
+    // add new user by sending user info to backend
+    async function addUser(): Promise<Response> 
+    {
         // fetch
-        let response = await fetch("http://localhost:8000", { //will need to change url later based on where web app is being hosted
+        return fetch("http://localhost:8000/auth/register", { //will need to change url later based on where web app is being hosted
             method: "POST",
-            body: JSON.stringify(doc),
             headers: {
                 'Accept': 'application/json',
                 'Content-Type': 'application/json'
-            }
-        });
-
-        // check if response was successful
-        if(response.ok) {
-            const userData = await response.json();
-            return {
-                _id: userData._id,
-                userType: doc.uType
-            }
-        } else {
-            return null;
-        }
+            },
+            body: JSON.stringify ({ email, password })
+        });        
     }
 
     // check that email entered was actually an email
@@ -52,19 +34,6 @@ export default function SignUp()
     {
         return emailRegex.test(email);
     }
-
-    // check if email was taken
-    const checkEmail = async() => {
-        try {
-            // will probably have to change based on db and backend
-            const response = await axios.get('http://localhost:8000/users/checkEmail', {params: {email: email}});
-            const taken = response.data.isTaken;
-            setIsEmailTaken(taken);
-            return taken;
-        } catch (error) {
-            return true;
-        }
-    };
 
     // check if password meets password requirements
             // must have captial letter, a number, special character, and at least 8 characters long
@@ -75,11 +44,11 @@ export default function SignUp()
     }
 
     // redirect user to main dialog page
-    async function redirectUser(event) 
+    async function redirectUser(event: FormEvent<HTMLFormElement>) 
     {
         event.preventDefault();
         setError("");
-        
+                
         // ensure user has input all information needed
         if(!email || !password || !password2)
         {
@@ -91,14 +60,6 @@ export default function SignUp()
         if(!isValidEmail(email))
         {
             setError("Must enter an email address. Try again.");
-            return;
-        }
-
-        // check if email is already taken
-        const isTaken = await checkEmail();
-        if(isTaken)
-        {
-            setError("Email is already taken. Try Again.");
             return;
         }
 
@@ -116,36 +77,49 @@ export default function SignUp()
             return;
         }
 
-        // stores uType and user id in local storage
-        const userData = await addUser();
-        const router = useRouter();
-        if(typeof userData === 'object' && userData !== null)
-        {
-            localStorage.setItem('userType', userData.userType);
-            localStorage.setItem('_id', userData._id);
+        try {
+            const response = await addUser();
+
+            // check if email was taken
+            if(response.status === 409)
+            {
+                setError("Email is already taken. Try again")
+                return;
+            }
+
+            // check if response was successful
+            if(!response.ok) {
+                setError("Account creation error. Please try again");
+                return;
+            }
+
+            // stores uType and user id in local storage
+            const userData = await response.json();
+            localStorage.setItem('_email', userData.email);
+            localStorage.setItem('_token', userData.token);
 
             router.push("/dialog")
-        } else {
-            setError("Account creation error!");
+        } catch {
+            setError("Could not connect to the server. Please try again");
         }
+        
     }
 
     // functions to set the actual user data
-    function handleEmailChange(data) 
+    function handleEmailChange(event: ChangeEvent<HTMLInputElement>) 
     {
-        setEmail(data.target.value);
-        setIsEmailTaken(false);
+        setEmail(event.target.value);
         setError("");
     }
 
-    function handlePasswordChange(data)
+    function handlePasswordChange(event: ChangeEvent<HTMLInputElement>)
     {
-        setPassword(data.target.value);
+        setPassword(event.target.value);
     }
 
-    function handlePassword2Change(data)
+    function handlePassword2Change(event: ChangeEvent<HTMLInputElement>)
     {
-        setPassword2(data.targe.value);
+        setPassword2(event.target.value);
     }
 
 
@@ -161,24 +135,24 @@ export default function SignUp()
                 {error && (
                     <p className='text-sm text-red-500 font-bold'>Error: {error}</p>
                 )}
-                <form className="flex w-full max-w-xs flex-col">
+                <form onSubmit={redirectUser} className="flex w-full max-w-xs flex-col">
                     <div className='flex flex-col gap-0.5'>
                         <label htmlFor="email" className="text-sm font-bold text-white mg-0">Email</label>
-                        <input onChange={handleEmailChange} onBlur={() => checkEmail(email)} type="email" className="h-10 w-full bg-ltgray px-2 text-black outline-none hover:opacity-90" required/>
+                        <input onChange={handleEmailChange} type="email" className="h-10 w-full bg-ltgray px-2 text-black outline-none hover:opacity-90" required/>
                     </div>
                     <br/>
                     <div className='flex flex-col gap-0.5'>
                         <label>Password</label>
-                        <input onChange={handlePasswordChange} type="password" className="h-10 w-full bg-ltgray px-2 text-black outline-none hover:opacity-90" required/>
+                        <input onChange={handlePasswordChange} type="password" maxLength={72} className="h-10 w-full bg-ltgray px-2 text-black outline-none hover:opacity-90" required/>
                     </div>
                     <br/>
                     <div className='flex flex-col gap-0.5'>
                         <label>Confirm Password</label>
-                        <input onChange={handlePassword2Change} type="password" className="h-10 w-full bg-ltgray px-2 text-black outline-none hover:opacity-90" required/>
+                        <input onChange={handlePassword2Change} type="password" maxLength={72} className="h-10 w-full bg-ltgray px-2 text-black outline-none hover:opacity-90" required/>
                     </div>
                     <br/>
                     <p className='text-center'>Already have an account? <Link href="/login" className="text-xl font-semibold text-gold hover:opacity-90">Login</Link></p>
-                    <button onClick={redirectUser} className="mx-auto mt-5 w-40 h-12 rounded-full bg-gold px-6 py-3 text-lg font-semibold text-black hover:opacity-90">Sign Up</button>
+                    <button type='submit' className="mx-auto mt-5 w-40 h-12 rounded-full bg-gold px-6 py-3 text-lg font-semibold text-black hover:opacity-90">Sign Up</button>
                 </form>
             </main>
         </div>
