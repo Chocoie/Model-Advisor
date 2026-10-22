@@ -1,0 +1,10 @@
+metric_key,display_label,explanation,lower_is_better
+exact_match,Exact Match,"Percentage of responses that exactly match the correct answer word-for-word.",false
+quasi_exact_match,Quasi-Exact Match,"Percentage of responses that match the correct answer after minor cleanup like ignoring punctuation or capitalisation.",false
+multi_ref_token_f1,Token F1,"How well the model's words overlap with multiple valid reference answers — balances completeness and precision.",false
+pass@1,Pass@1,"Percentage of generated code solutions that pass all unit tests on the very first attempt.",false
+gsm8k_exact,Exact Match (Math),"Percentage of multi-step math problems where the model produces the exact correct final number.",false
+rouge_1,ROUGE-1,"How many individual words from the reference summary appear in the model's output.",false
+rouge_2,ROUGE-2,"How many two-word phrases from the reference summary appear in the model's output — captures more meaning than single words alone.",false
+rouge_l,ROUGE-L,"How well the model's output preserves the order and flow of the reference summary.",false
+self_bleu,Diversity Score,"Shows how varied the model's outputs are across different responses. Displayed as 1 − Self-BLEU: a Self-BLEU of 0 means every response is unique (score = 100%), while 1 means every response is identical (score = 0%). Higher is better.",true
