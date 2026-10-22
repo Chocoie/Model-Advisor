@@ -1,57 +1,68 @@
 """
-PLACEHOLDER CHAT AGENT (keyword-based)
+chat_agent.py: connects the conversation to the LLM team's code.
 
-This file will be replaced by the LLM team's real agent.
-Keep the function names and return shapes the same so main.py doesn't change:
+Contract main.py relies on:
+  next_action(history) -> {"type": "question", "question": text}
+                       or {"type": "ready", "skills": list of skill names}
+  explain_results(skills, results) -> text
 
-    next_step(history) -> {"type": "question", "question": str}
-                       or {"type": "ready", "skills": [skill names from VALID_SKILLS]}
-
-    explain(skills, results) -> str
-
-history format: [{"role": "user" | "assistant", "content": str}, ...]
+next_action uses llm_classifier.classify (keyword or LLM mode, set in data/config.json).
+explain_results adds an LLM-written explanation when the LLM is on,
+and falls back to a plain list otherwise.
 """
 
 import json
-from ranking_data import DATA_DIR, VALID_SKILLS
+from llm_classifier import classify, call_llm, extract_json, use_local_classifier, classify_local
 
-# keywords.json comes from the chatbot branch (LLM team's prototype)
-with open(DATA_DIR / "keywords.json", encoding="utf-8") as f:
-    KEYWORDS = json.load(f)
+def next_action(history):
+    """
+    Decide whether to ask the user another question or start ranking.
+    Calls llm_classifier.classify on the conversation history.
+    """
+    try:
+        result, _, error = classify(history)
+    except Exception as e:
+        print("LLM failed:", repr(e))
+        result, _, error = classify_local(history) 
+    if error:
+        return{"type" : "question", 
+                       "question" : "Sorry, I did not quite get that. Could you describe what you need the model to do?"}
+    if result["type"] == "question":
+        return {"type": "question", "question": result["text"]}
+    if result["type"] == "answer":
+        return {"type": "ready", "skills": result["skills"]}
 
+def explain_results(skills, results):
+    """
+    Build the reply shown with the rankings: the plain list, plus a short
+    LLM-written explanation when the LLM is on. Falls back to the plain list
+    if the LLM is off, unreachable, or returns something unusable.
+    """
 
-# TODO (LLM team): could be kept as a fallback if the LLM is down
-def match_skills(text, max_skills=2):
-    """ skills whose keywords appear most often in the text, best first"""
+    plain = plain_list(skills, results)
+    if use_local_classifier():
+        return plain                           # LLM is off
 
-    text = text.lower()
-    hits = {}
-    for skill, words in KEYWORDS.items():
-        count = sum(1 for w in words if w in text)
-        if count and skill in VALID_SKILLS:
-            hits[skill] = count
-    best = sorted(hits, key=hits.get, reverse=True)
-    return best[:max_skills]
+    prompt = (
+        "Explain in 2-3 sentences why these models are recommended for these skills. "
+        "Use only the data given. Respond as JSON: {\"explanation\": \"...\"}\n"
+        f"Skills: {skills}\nResults: {json.dumps(results)}"
+    )
+    try:
+        raw = call_llm([{"role": "user", "content": prompt}])
+        parsed, _ = extract_json(raw)
+        if parsed:
+            return plain + "\n\n" + parsed["explanation"]
+        return plain
+    except Exception:
+        return plain                           # API down or no key
 
-
-# TODO (LLM team): replace with an LLM call that reads the history and
-# either asks a follow-up question or returns the skills
-def next_step(history):
-    """ placeholder agent """
-
-    user_text = " ".join(m["content"] for m in history if m["role"] == "user")
-    skills = match_skills(user_text)
-    if not skills:
-        return {"type": "question",
-                "question": "Can you tell me more about the task? What should the model do?"}
-    return {"type": "ready", "skills": skills}
-
-
-# TODO (LLM team): replace with an LLM-written explanation of the recommendation
-def explain(skills, results):
-    """ placeholder"""
-
-    lines = [f"Skills detected: {', '.join(skills)}", "Top models:"]
+def plain_list(skills, results):
+    """Format the detected skills and top-ranked models as a plain text list."""
+    lines = ["Skills detected:"]
+    for s in skills:
+        lines.append(f"- {s}")
+    lines.append("Top Models:")
     for i, r in enumerate(results, start=1):
         lines.append(f"{i}. {r['model']} (avg rank {r['avg_rank']})")
     return "\n".join(lines)

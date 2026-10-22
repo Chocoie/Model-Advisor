@@ -1,3 +1,5 @@
+import './globals.css';
+
 export const metadata = {
   title: "Model Advisor",
   description: "Chat with the model advisor",
