@@ -293,17 +293,16 @@ function renderMessage(m) {
   if (obj && obj.type === "question") {
     chatEl.appendChild(el("div", "msg bot", obj.text || "(no text)"));
   } else if (obj && obj.type === "answer") {
-    const skills = (Array.isArray(obj.skills) && obj.skills.length) ? obj.skills : [obj.skill || "?"];
+    const r = m.result || obj;
+    const weights = (Array.isArray(r.weights) && r.weights.length)
+      ? r.weights : [{ skill: obj.skill || "?", weight: 100 }];
+    const skills = weights.map(w => w.skill);
     const card = el("div", "card");
     card.appendChild(el("div", "tag", skills.length > 1 ? "Classified as (multi-skill)" : "Classified as"));
-    if (skills.length > 1) {
-      card.appendChild(el("div", "skilllabel", "Primary"));
-      card.appendChild(el("div", "skill", skills[0]));
-      card.appendChild(el("div", "skilllabel", "Secondary"));
-      skills.slice(1).forEach(s => card.appendChild(el("div", "skill sec", s)));
-    } else {
-      card.appendChild(el("div", "skill", skills[0]));
-    }
+    weights.forEach((w, i) => {
+      if (skills.length > 1 && i < 2) card.appendChild(el("div", "skilllabel", i === 0 ? "Primary" : "Secondary"));
+      card.appendChild(el("div", "skill" + (i ? " sec" : ""), w.skill + "  ·  need " + w.weight));
+    });
     if (obj.capability) card.appendChild(el("div", "cap", obj.capability));
     if (obj.summary) card.appendChild(el("div", "summary", obj.summary));
     const conf = (typeof obj.confidence === "number") ? obj.confidence : 0.5;
@@ -313,27 +312,43 @@ function renderMessage(m) {
     fill.style.width = Math.round(conf * 100) + "%";
     bar.appendChild(fill);
     card.appendChild(bar);
-    if (m.recs && m.recs.length) {
+    const recs = r.recommendations || m.recs;
+    if (recs && recs.length) {
       const recbox = el("div", "recbox");
-      recbox.appendChild(el("div", "rechead", skills.length > 1 ? "Top models across all skills" : "Top models for this skill"));
-      m.recs.forEach((r, i) => {
+      recbox.appendChild(el("div", "rechead", "Best single model"));
+      recs.forEach((rec, i) => {
         const row = el("div", "recrow" + (i === 0 ? " top" : ""));
         row.appendChild(el("span", "recrank", "#" + (i + 1)));
         const nameEl = el("div", "recname");
-        nameEl.appendChild(el("div", "", r.name));
-        if (skills.length > 1 && r.scores) {
+        nameEl.appendChild(el("div", "", rec.name));
+        if (skills.length > 1 && rec.relative) {
           const sub = el("div", "recsub");
-          sub.textContent = Object.entries(r.scores).map(([k, v]) => k + ": " + v).join("  ·  ");
+          sub.textContent = Object.entries(rec.relative).map(([k, v]) => k + ": " + v + "%").join("  ·  ");
           nameEl.appendChild(sub);
         }
         row.appendChild(nameEl);
-        const scoreLabel = skills.length === 1 ? String(r.scores[skills[0]]) : ("avg rank " + r.avg_rank);
-        row.appendChild(el("span", "recscore", scoreLabel));
+        row.appendChild(el("span", "recscore", "fit " + rec.fit + "%"));
         if (i === 0) row.appendChild(el("span", "recbadge", "Recommended"));
         recbox.appendChild(row);
       });
       card.appendChild(recbox);
     }
+    if (r.plan) {
+      const planbox = el("div", "recbox");
+      planbox.appendChild(el("div", "rechead",
+        r.plan.split ? "Recommended split across models" : "One model covers every part"));
+      r.plan.subtasks.forEach(st => {
+        const row = el("div", "recrow");
+        const nameEl = el("div", "recname");
+        nameEl.appendChild(el("div", "", st.name + " → " + st.model));
+        nameEl.appendChild(el("div", "recsub", st.skills.map(x => x.skill + " (" + x.weight + ")").join("  ·  ")));
+        row.appendChild(nameEl);
+        row.appendChild(el("span", "recscore", "fit " + st.fit + "%"));
+        planbox.appendChild(row);
+      });
+      card.appendChild(planbox);
+    }
+    if (r.explanation) card.appendChild(el("div", "summary", r.explanation));
     chatEl.appendChild(card);
   } else {
     chatEl.appendChild(el("div", "msg bot", m.content));
@@ -397,7 +412,7 @@ async function send() {
       showError(data.error || "Something went wrong.");
     } else {
       const recs = (data.result && data.result.recommendations) || null;
-      messages.push({ role: "assistant", content: data.content, recs: recs });
+      messages.push({ role: "assistant", content: data.content, recs: recs, result: data.result });
       render();
     }
   } catch (e) {

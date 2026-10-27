@@ -9,5 +9,14 @@
     "timeout_seconds": 300
   },
   "classifier": "local",
-  "max_questions": 6
+  "max_questions": 6,
+  "excluded_families": [
+    "qwen", "qwq", "qvq", "deepseek", "glm", "chatglm", "kimi", "moonshot",
+    "minimax", "yi", "internlm", "baichuan", "ernie", "hunyuan", "doubao",
+    "zhipu", "mimo", "telechat", "skywork", "sensenova"
+  ],
+  "min_weight": 30,
+  "max_skills": 8,
+  "max_subtasks": 4,
+  "weak_threshold": 0.7
 }

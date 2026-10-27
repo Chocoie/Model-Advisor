@@ -33,6 +33,7 @@
   "Constraint Satisfaction": ["constraint", "scheduling", "must satisfy", "optimiz", "allocat", "subject to", "timetable", "sudoku", "satisf"],
   "Data Interpretation": ["data", "interpret", "chart", "graph", "dataset", "analytic", "insight", "report", "spreadsheet", "dashboard", "trend"],
   "Pattern Recognition": ["pattern", "recogni", "anomal", "cluster", "detect", "regularit", "repeating"],
+  "_unsupported_patterns": ["\\b(generate|create|draw|make|design|render|paint|produce)\\b.{0,25}\\b(images?|pictures?|photos?|illustrations?|logos?|videos?|animations?|songs?|music|voices?|audio|3d models?)\\b", "\\b(text[- ]to[- ](speech|image|video)|speech[- ]to[- ]text|speech recognition|voice (assistant|cloning|recognition)|transcri(be|ption)|ocr|image (classification|recognition|segmentation)|object detection|computer vision|robotics?|self[- ]driving)\\b", "\\b(image|video|audio|speech) generation\\b"],
   "_harm_patterns": ["\\b(make|build|create|construct|assemble|synthesi[sz]e|manufacture)\\b.{0,20}\\b(bomb|explosive|weapon|bioweapon|nerve agent|poison|ransomware|malware|keylogger)", "\\b(wo?n'?t|will not|doesn'?t|never)\\s+(block|refuse|stop|censor|filter)\\b", "\\b(uncensored|unfiltered|no (safety|guardrails?|restrictions?|filters?))\\b", "\\bbypass(ing)?\\s+(the\\s+)?(safety|filters?|guardrails?|refusals?|moderation)\\b", "\\b(unethical|illegal)\\s+(task|thing|stuff|request|activity)"],
   "_safety_eval_words": "resist|robust|detect|moderat|evaluat|safest|reject|refus(es|ing|al)?\\s+(harmful|unethical|illegal)"
 }

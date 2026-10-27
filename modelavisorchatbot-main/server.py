@@ -74,6 +74,31 @@ for _cap in TAXONOMY["capabilities"]:
         SKILL_TO_CAP[_skill] = _cap["name"]
 
 
+EXCLUDED_FAMILIES = [norm(f) for f in CONFIG.get("excluded_families", [])]
+MIN_WEIGHT = CONFIG.get("min_weight", 30)
+MAX_SKILLS = CONFIG.get("max_skills", 8)
+MAX_SUBTASKS = CONFIG.get("max_subtasks", 4)
+WEAK_THRESHOLD = CONFIG.get("weak_threshold", 0.7)
+
+
+def is_excluded(name):
+    """True if a model name belongs to a blocked (Chinese-developed) family."""
+    n = norm(name)
+    return any(re.search(r"(?<![a-z0-9])" + re.escape(f), n) for f in EXCLUDED_FAMILIES)
+
+
+if is_excluded(CONFIG["backend"].get("model", "")):
+    raise SystemExit("config.json backend model '%s' is on the excluded list "
+                     "(excluded_families). Choose a different model." % CONFIG["backend"]["model"])
+
+# Only models that are allowed ever get ranked or recommended.
+MODELS = [m for m in BENCHMARK["models"] if not is_excluded(m["name"])]
+BEST = {}
+for _m in MODELS:
+    for _s, _v in _m["skills"].items():
+        BEST[_s] = max(BEST.get(_s, 0), _v or 0)
+
+
 def build_system_prompt():
     lines = [
         "You are a strict categorization assistant. Your ONLY job is:",
@@ -92,16 +117,42 @@ def build_system_prompt():
         "  respond with the answer JSON for the task discussed so far; the app attaches the",
         "  model recommendations to every answer.",
         "  If the user goes off-topic, politely steer back to the task.",
-        "- Ask at most a few short clarifying questions, and only when you lack enough",
-        "  context to pick a skill. Otherwise classify immediately.",
         "- You MUST respond with ONLY a single JSON object. No other text, no markdown.",
         "",
+        "FOLLOW-UP QUESTIONS (be as specific as possible about the skills needed):",
+        "- Ask a question only when the answer would change which skills or weights you pick.",
+        "- Each question must separate two concrete candidates, e.g. \"Does the model need to",
+        "  WRITE new code or EXPLAIN/DEBUG existing code?\" Never ask vague questions like",
+        "  \"can you tell me more?\".",
+        "- For a large or multi-part project, first ask the user to list its main parts, then",
+        "  ask about the skills each part needs. Ask one question at a time, at most %d total."
+        % CONFIG.get("max_questions", 6),
+        "- Stop asking as soon as every part of the task maps clearly to skills.",
+        "",
+        "WEIGHTS:",
+        "- Give every skill a need weight from 1 to 100 (100 = central to the task, 30 = minor).",
+        "- Include only skills with weight >= %d, at most %d skills." % (MIN_WEIGHT, MAX_SKILLS),
+        "",
+        "LARGE PROJECTS:",
+        "- If the task has 2 or more distinct parts that need different kinds of skills",
+        "  (e.g. coding AND emotional tone AND planning), also return 'subtasks': a list of at",
+        "  most %d parts, each with a short name and its own weighted skills." % MAX_SUBTASKS,
+        "- Omit 'subtasks' for a single focused task.",
+        "",
+        "OUT OF SCOPE:",
+        "- The taxonomy covers text-based skills only. If the task needs something it does not",
+        "  cover (image/video/audio generation, speech, robotics, ...), do not force a match.",
+        '  Respond {"type":"unsupported","text":"what is not covered and what you CAN help with"}.',
+        "  If only part of the task is out of scope, answer for the covered part and mention the",
+        "  rest in 'summary'.",
+        "",
         "RESPONSE FORMAT:",
-        'If you need more context, respond EXACTLY like: {"type":"question","text":"your question"}',
-        'If you have enough to classify, respond EXACTLY like:',
-        '{"type":"answer","skills":["<skill1>","<skill2>"],"confidence":0.9,"summary":"one short sentence"}',
-        "- 'skills' is a list of 1 to 5 EXACT skill names from the taxonomy, most relevant first.",
-        "- Use more than one skill only when the task genuinely spans several skills.",
+        'If you need more context: {"type":"question","text":"your question"}',
+        'If you have enough to classify:',
+        '{"type":"answer","skills":[{"skill":"<skill1>","weight":90},{"skill":"<skill2>","weight":40}],'
+        '"subtasks":[{"name":"<part>","skills":[{"skill":"<skill>","weight":80}]}],'
+        '"confidence":0.9,"summary":"one short sentence"}',
+        "- Skill names must be EXACT names from the taxonomy, most important first.",
         "- 'confidence' is a number between 0.0 and 1.0.",
     ]
     return "\n".join(lines)
@@ -206,31 +257,58 @@ def extract_json(text):
         return None, str(e)
 
 
-def validate_and_normalize_answer(ans):
-    raw_skills = ans.get("skills")
-    if isinstance(raw_skills, str):
-        raw_skills = [raw_skills]
-    if not raw_skills:
-        raw_skills = [ans.get("skill", "")]
+def normalize_weights(raw):
+    """Accept skills as names, {skill, weight} dicts or a {skill: weight} map.
 
-    skills = []
-    seen = set()
-    for name in raw_skills:
+    Returns [{"skill", "weight"}] with canonical names and weights 1-100, strongest
+    first. Skills under min_weight are dropped (the top skill is always kept).
+    """
+    if isinstance(raw, str):
+        raw = [raw]
+    if isinstance(raw, dict):
+        raw = [{"skill": k, "weight": v} for k, v in raw.items()]
+    if not isinstance(raw, list):
+        return []
+    found = {}
+    for i, item in enumerate(raw):
+        if isinstance(item, dict):
+            name, w = item.get("skill") or item.get("name"), item.get("weight")
+        else:
+            name, w = item, None
         got = canonical_skill(name)
-        if got:
-            canon_skill = got[0]
-            if canon_skill not in seen:
-                seen.add(canon_skill)
-                skills.append(canon_skill)
+        if not got:
+            continue
+        try:
+            w = int(round(float(w)))
+        except (TypeError, ValueError):
+            w = max(MIN_WEIGHT, 100 - 20 * i)
+        found[got[0]] = max(found.get(got[0], 0), max(1, min(100, w)))
+    ordered = sorted(found.items(), key=lambda kv: -kv[1])
+    keep = [(s, w) for s, w in ordered if w >= MIN_WEIGHT] or ordered[:1]
+    return [{"skill": s, "weight": w} for s, w in keep[:MAX_SKILLS]]
 
-    if not skills:
+
+def validate_and_normalize_answer(ans):
+    sw = normalize_weights(ans.get("skills") or ans.get("skill"))
+    if not sw:
         msg = ("Your 'skills' are not in the taxonomy. Use EXACT skill names from "
                "the list and respond again with a valid 'answer' JSON object.")
         return False, msg
 
-    ans["skills"] = skills
-    ans["skill"] = skills[0]
-    ans["capability"] = SKILL_TO_CAP[skills[0]]
+    ans["weights"] = sw
+    ans["skills"] = [x["skill"] for x in sw]
+    ans["skill"] = ans["skills"][0]
+    ans["capability"] = SKILL_TO_CAP[ans["skill"]]
+
+    subtasks = []
+    raw_subtasks = ans.get("subtasks")
+    for st in (raw_subtasks if isinstance(raw_subtasks, list) else [])[:MAX_SUBTASKS]:
+        ssw = normalize_weights(st.get("skills")) if isinstance(st, dict) else []
+        if ssw:
+            name = str(st.get("name") or SKILL_TO_CAP[ssw[0]["skill"]]).strip()
+            subtasks.append({"name": name, "skills": ssw})
+    ans["subtasks"] = subtasks
+
     try:
         conf = float(ans.get("confidence", 0.5))
         ans["confidence"] = max(0.0, min(1.0, conf))
@@ -240,28 +318,91 @@ def validate_and_normalize_answer(ans):
     return True, None
 
 
-def get_recommendations(skills):
-    """Rank models by their average rank across one or more skills (lower = better)."""
-    models = BENCHMARK["models"]
-    avg_rank = {}
-    for m in models:
-        total = 0
-        for skill in skills:
-            score = m["skills"].get(skill)
-            if score is None:
-                total += len(models)
-            else:
-                better = sum(1 for o in models if (o["skills"].get(skill) or 0) > score)
-                total += better + 1
-        avg_rank[m["name"]] = total / len(skills)
+def fit(model, sw):
+    """Weighted share (0-1) of the best available score the model reaches.
 
-    ordered = sorted(models, key=lambda m: (avg_rank[m["name"]], -m["overall"]))
-    return [{
-        "name": m["name"],
-        "avg_rank": round(avg_rank[m["name"]], 2),
-        "overall": m["overall"],
-        "scores": {s: m["skills"].get(s) for s in skills},
-    } for m in ordered[:3]]
+    Each skill's score is taken relative to the best allowed model on that skill, so
+    skills with very different score scales count equally per unit of weight.
+    """
+    total = sum(x["weight"] for x in sw)
+    got = 0.0
+    for x in sw:
+        best = BEST.get(x["skill"], 0)
+        if best:
+            got += x["weight"] * (model["skills"].get(x["skill"]) or 0) / best
+    return got / total if total else 0.0
+
+
+def get_recommendations(sw, limit=3):
+    """Rank allowed models by weighted fit across the needed skills."""
+    ranked = sorted(MODELS, key=lambda m: (-fit(m, sw), -m["overall"]))
+    recs = []
+    for m in ranked[:limit]:
+        scores = {x["skill"]: m["skills"].get(x["skill"]) for x in sw}
+        recs.append({
+            "name": m["name"],
+            "fit": round(100 * fit(m, sw), 1),
+            "overall": m["overall"],
+            "scores": scores,
+            "relative": {s: round(100 * (v or 0) / BEST[s], 1) if BEST.get(s) else 0
+                         for s, v in scores.items()},
+        })
+    return recs
+
+
+def build_plan(subtasks, sw):
+    """Compare the best single model with a per-part split for multi-part projects.
+
+    A part gets its own model only when the best single model reaches under
+    weak_threshold of that part's best model; otherwise the single model covers it.
+    """
+    if len(subtasks) < 2:
+        return None
+    by_name = {m["name"]: m for m in MODELS}
+    single = get_recommendations(sw, 1)[0]["name"]
+    parts, split = [], False
+    for st in subtasks:
+        best = get_recommendations(st["skills"], 1)[0]
+        single_fit = round(100 * fit(by_name[single], st["skills"]), 1)
+        weak = best["name"] != single and single_fit < WEAK_THRESHOLD * best["fit"]
+        split = split or weak
+        parts.append({
+            "name": st["name"], "skills": st["skills"],
+            "model": best["name"] if weak else single,
+            "fit": best["fit"] if weak else single_fit,
+            "single_model_fit": single_fit, "weak": weak,
+        })
+    return {"single_model": single, "split": split, "subtasks": parts}
+
+
+def build_explanation(ans):
+    sw, top, plan = ans["weights"], ans["recommendations"][0], ans.get("plan")
+    need = ", ".join("%s (%d)" % (x["skill"], x["weight"]) for x in sw)
+    parts = ["Based on your needs, your use case calls for " + need + "."]
+    parts.append("For a single model, we recommend %s, which reaches %.0f%% of the best "
+                 "available score across these weighted skills." % (top["name"], top["fit"]))
+    weak = [s for s, p in top["relative"].items() if p < 100 * WEAK_THRESHOLD]
+    if weak:
+        parts.append("Its weaker spot%s: %s." % ("s" if len(weak) > 1 else "", ", ".join(weak)))
+    if plan and plan["split"]:
+        assign = "; ".join("%s for %s" % (p["model"], p["name"]) for p in plan["subtasks"])
+        parts.append("Because the parts of this project need different strengths, we "
+                     "recommend splitting it: " + assign + ".")
+    elif plan:
+        parts.append("The parts of this project are close enough that one model covers them all.")
+    if ans.get("unsupported_note"):
+        parts.append(ans["unsupported_note"])
+    return " ".join(parts)
+
+
+def finish_answer(ans):
+    """Attach recommendations, split plan and explanation to a validated answer."""
+    ans["recommendations"] = get_recommendations(ans["weights"])
+    ans["plan"] = build_plan(ans.get("subtasks", []), ans["weights"])
+    ans["explanation"] = build_explanation(ans)
+    extra = ("recommendations", "plan", "explanation")
+    clean = {k: v for k, v in ans.items() if k not in extra}
+    return ans, json.dumps(clean), None
 
 
 def use_local_classifier():
@@ -273,6 +414,12 @@ DECLINE_TEXT = (
     "around their safeguards. If you're evaluating safety, describe it as a "
     "robustness task, e.g. \"which model best resists harmful or jailbreak "
     "requests\" or \"most harmless content generation\".")
+
+UNSUPPORTED_TEXT = (
+    "We don't have benchmark data for %s, so I can't recommend a model for it reliably. "
+    "The skills I cover are text-based (reasoning, summarizing, writing code, planning, "
+    "data interpretation, bias and safety, and so on). If part of your task is text-based, "
+    "describe that part.")
 
 
 def is_harm_seeking(text):
@@ -286,21 +433,76 @@ def is_harm_seeking(text):
     return any(re.search(p, text) for p in KEYWORDS.get("_harm_patterns", []))
 
 
+def find_unsupported(text):
+    """Phrases in the text that ask for skills outside the taxonomy (images, speech...)."""
+    found = []
+    for p in KEYWORDS.get("_unsupported_patterns", []):
+        m = re.search(p, text)
+        if m and m.group(0) not in found:
+            found.append(m.group(0))
+    return found
+
+
+def _msg_type(m):
+    try:
+        return json.loads(m.get("content", "")).get("type")
+    except Exception:
+        return None
+
+
+def _examples(skill, n=3):
+    return ", ".join(KEYWORDS.get(skill, [])[:n]) or skill
+
+
+def follow_up_question(sw, hits):
+    """A specific question when the first message leaves the skills ambiguous, else None.
+
+    Three cases: a big multi-capability project (ask for its parts), two close skills
+    from different capabilities (ask which matters more), or a single weak keyword match
+    (ask which sibling skill is meant).
+    """
+    caps = []
+    for x in sw:
+        c = SKILL_TO_CAP[x["skill"]]
+        if c not in caps:
+            caps.append(c)
+    if len(caps) >= 3:
+        return ("This looks like a larger project touching " + ", ".join(caps[:3]) +
+                ". List its main parts (for example: 'backend code', 'customer-facing "
+                "writing', 'planning') so I can match the right model to each part.")
+    if len(sw) >= 2 and sw[1]["weight"] >= 80 and SKILL_TO_CAP[sw[0]["skill"]] != SKILL_TO_CAP[sw[1]["skill"]]:
+        a, b = sw[0]["skill"], sw[1]["skill"]
+        return ("Which matters more for this task: %s (e.g. %s) or %s (e.g. %s)? "
+                "Or are both equally important?" % (a, _examples(a), b, _examples(b)))
+    if len(sw) == 1 and hits <= 1:
+        s = sw[0]["skill"]
+        cap = SKILL_TO_CAP[s]
+        siblings = [k for k in next(c["skills"] for c in TAXONOMY["capabilities"]
+                                    if c["name"] == cap) if k != s][:2]
+        if siblings:
+            return ("I read this as %s. Is that the core of it, or is it closer to %s?"
+                    % (s, " or ".join(siblings)))
+    return None
+
+
 def classify_local(messages):
-    """Match the latest user message to skills with keyword scoring. No API calls.
+    """Match the user's messages to weighted skills with keyword scoring. No API calls.
 
     Each distinct keyword that appears (at a word start, so "summar" matches
-    "summarize"/"summary") scores 1; a skill's own name scores 3.
-    Keeps skills scoring at least a third of the top score, up to 5.
+    "summarize"/"summary") scores 1; a skill's own name scores 3. Skill weights are each
+    score as a percent of the top score; skills under min_weight are dropped. All user
+    messages are scored together so answers to follow-up questions add to the picture.
     """
-    text = ""
-    for m in reversed(messages):
-        if m.get("role") == "user":
-            text = norm(m.get("content", ""))
-            break
-    if is_harm_seeking(text):
+    users = [m.get("content", "") for m in messages if m.get("role") == "user"]
+    text = norm(" ".join(users))
+    latest = norm(users[-1]) if users else ""
+    asked = sum(1 for m in messages if m.get("role") == "assistant" and _msg_type(m) == "question")
+    if is_harm_seeking(latest):
         q = {"type": "question", "text": DECLINE_TEXT}
         return q, json.dumps(q), None
+    unsupported = find_unsupported(text)
+    for phrase in unsupported:
+        text = text.replace(phrase, " ")  # don't score skills off out-of-scope phrases
     scored = []
     matched = {}
     for cap in TAXONOMY["capabilities"]:
@@ -312,26 +514,42 @@ def classify_local(messages):
                 scored.append((score, skill))
                 matched[skill] = hits
     if not scored:
-        q = {"type": "question", "text":
-             "I couldn't match that to a skill. Describe what the model needs to do "
-             "(e.g. write code, summarize, plan steps, detect emotion, extract data), "
-             "or click a skill in the sidebar."}
+        if unsupported:
+            q = {"type": "question", "text": UNSUPPORTED_TEXT % ", ".join(unsupported)}
+        else:
+            q = {"type": "question", "text":
+                 "I couldn't match that to a skill. Describe what the model needs to do "
+                 "(e.g. write code, summarize, plan steps, detect emotion, extract data), "
+                 "or click a skill in the sidebar."}
         return q, json.dumps(q), None
     scored.sort(key=lambda x: (-x[0], x[1]))
     top = scored[0][0]
-    skills = [s for sc, s in scored if sc >= max(1, top / 3)][:5]
+    sw = [{"skill": s, "weight": round(100 * sc / top)} for sc, s in scored]
+    sw = normalize_weights(sw)
+    if asked == 0:
+        q = follow_up_question(sw, len(matched[sw[0]["skill"]]))
+        if q:
+            q = {"type": "question", "text": q}
+            return q, json.dumps(q), None
+
+    groups = {}
+    for x in sw:
+        groups.setdefault(SKILL_TO_CAP[x["skill"]], []).append(x)
     ans = {
         "type": "answer",
-        "skills": skills,
-        "skill": skills[0],
-        "capability": SKILL_TO_CAP[skills[0]],
+        "skills": sw,
+        "subtasks": ([{"name": c, "skills": g} for c, g in groups.items()]
+                     if len(groups) >= 2 else []),
         "confidence": round(min(0.95, 0.35 + 0.15 * top), 2),
         "summary": "Matched on: " + ", ".join(
-            sorted({k for s in skills for k in matched[s]}) or skills),
+            sorted({k for x in sw for k in matched[x["skill"]]}) or [x["skill"] for x in sw]),
     }
-    ans["recommendations"] = get_recommendations(skills)
-    clean = {k: v for k, v in ans.items() if k != "recommendations"}
-    return ans, json.dumps(clean), None
+    if unsupported:
+        ans["unsupported_note"] = (
+            "Note: we have no benchmark data for %s, so this recommendation covers only "
+            "the text-based parts of your task." % ", ".join(unsupported))
+    validate_and_normalize_answer(ans)
+    return finish_answer(ans)
 
 
 def classify(messages):
@@ -355,8 +573,8 @@ def classify(messages):
         return None, raw, "The model did not return valid JSON: " + (err or "")
 
     ptype = parsed.get("type")
-    if ptype == "question":
-        parsed["text"] = str(parsed.get("text", "")).strip()
+    if ptype in ("question", "unsupported"):
+        parsed = {"type": "question", "text": str(parsed.get("text", "")).strip()}
         return parsed, json.dumps(parsed), None
 
     if ptype == "answer":
@@ -367,13 +585,9 @@ def classify(messages):
             raw2 = call_llm(full)
             parsed2, _ = extract_json(raw2)
             if parsed2 and parsed2.get("type") == "answer" and validate_and_normalize_answer(parsed2)[0]:
-                parsed2["recommendations"] = get_recommendations(parsed2["skills"])
-                clean2 = {k: v for k, v in parsed2.items() if k != "recommendations"}
-                return parsed2, json.dumps(clean2), None
+                return finish_answer(parsed2)
             return None, raw, msg or "invalid classification"
-        parsed["recommendations"] = get_recommendations(parsed["skills"])
-        clean = {k: v for k, v in parsed.items() if k != "recommendations"}
-        return parsed, json.dumps(clean), None
+        return finish_answer(parsed)
 
     return None, raw, "Unknown response type: " + str(ptype)
 
