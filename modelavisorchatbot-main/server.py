@@ -375,9 +375,14 @@ def build_plan(subtasks, sw):
     return {"single_model": single, "split": split, "subtasks": parts}
 
 
+def need_label(w):
+    """Plain-words version of a 1-100 need weight."""
+    return "essential" if w >= 80 else "important" if w >= 55 else "minor"
+
+
 def build_explanation(ans):
     sw, top, plan = ans["weights"], ans["recommendations"][0], ans.get("plan")
-    need = ", ".join("%s (%d)" % (x["skill"], x["weight"]) for x in sw)
+    need = ", ".join("%s (%s)" % (x["skill"], need_label(x["weight"])) for x in sw)
     parts = ["Based on your needs, your use case calls for " + need + "."]
     parts.append("For a single model, we recommend %s, which reaches %.0f%% of the best "
                  "available score across these weighted skills." % (top["name"], top["fit"]))
@@ -397,10 +402,11 @@ def build_explanation(ans):
 
 def finish_answer(ans):
     """Attach recommendations, split plan and explanation to a validated answer."""
-    ans["recommendations"] = get_recommendations(ans["weights"])
+    ans["ranking"] = get_recommendations(ans["weights"], limit=len(MODELS))
+    ans["recommendations"] = ans["ranking"][:3]
     ans["plan"] = build_plan(ans.get("subtasks", []), ans["weights"])
     ans["explanation"] = build_explanation(ans)
-    extra = ("recommendations", "plan", "explanation")
+    extra = ("recommendations", "ranking", "plan", "explanation")
     clean = {k: v for k, v in ans.items() if k not in extra}
     return ans, json.dumps(clean), None
 
@@ -631,6 +637,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/taxonomy":
             self._send(200, TAXONOMY)
+            return
+        if path == "/api/models":
+            self._send(200, {
+                "models": sorted(MODELS, key=lambda m: -m["overall"]),
+                "best": BEST,
+                "excluded_families": CONFIG.get("excluded_families", []),
+                "hidden": len(BENCHMARK["models"]) - len(MODELS),
+            })
             return
         if path == "/api/config":
             lm = CONFIG["backend"]

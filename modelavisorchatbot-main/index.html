@@ -119,6 +119,29 @@
   .card .skill.sec { font-size: 15px; font-weight: 600; margin: 2px 0; }
   .alsoskills { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
   .recsub { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  .needrow { margin: 6px 0 2px; }
+  .needrow .nm { font-size: 15px; font-weight: 600; }
+  .needrow.first .nm { font-size: 17px; font-weight: 700; }
+  .chip { display: inline-block; margin-left: 8px; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; vertical-align: middle; }
+  .chip.essential { background: #dcfce7; color: #166534; }
+  .chip.important { background: #fef9c3; color: #854d0e; }
+  .chip.minor { background: #e5e7eb; color: #4b5563; }
+  .needbar { height: 4px; width: 140px; border-radius: 3px; background: #e5e7eb; margin-top: 3px; overflow: hidden; }
+  .needbar > div { height: 100%; background: var(--accent); }
+  .legend { font-size: 11.5px; color: var(--muted); margin-top: 8px; }
+  details.all { margin-top: 8px; font-size: 13px; }
+  details.all summary { cursor: pointer; color: var(--accent); }
+  .rankbtn { margin-left: 0; }
+  .overlay { display: none; position: fixed; inset: 0; background: rgba(17,24,39,.45); align-items: center; justify-content: center; z-index: 10; }
+  .overlay.open { display: flex; }
+  .modal { background: var(--panel); border-radius: 12px; width: min(720px, 94vw); max-height: 86vh; display: flex; flex-direction: column; }
+  .modal header { border-bottom: 1px solid var(--border); border-radius: 12px 12px 0 0; }
+  .modal .body { padding: 14px 20px; overflow-y: auto; }
+  .modal select { font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; max-width: 100%; }
+  .modal .note { font-size: 12px; color: var(--muted); margin: 8px 0; }
+  .rkrow { display: grid; grid-template-columns: 28px 1fr 70px; gap: 8px; align-items: center; padding: 5px 0; font-size: 13.5px; border-bottom: 1px solid #f3f4f6; }
+  .rkbar { height: 5px; border-radius: 3px; background: #e5e7eb; margin-top: 3px; overflow: hidden; }
+  .rkbar > div { height: 100%; background: var(--accent); }
   .err { align-self: center; background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; border-radius: 8px; padding: 10px 14px; font-size: 13px; max-width: 85%; }
   .composer {
     border-top: 1px solid var(--border);
@@ -159,12 +182,26 @@
 <header>
   <h1>Model Advisor</h1>
   <span class="sub">picks the best model for your task</span>
-  <button class="keybtn" id="keyBtn" title="Use your own Ollama API key">🔑 API key</button>
+  <button class="keybtn rankbtn" id="rankBtn" title="See how every model scores">📊 Rankings</button>
+  <button class="keybtn" id="keyBtn" style="margin-left:0" title="Use your own Ollama API key">🔑 API key</button>
   <div class="status">
     <span class="dot" id="dot"></span>
     <span id="statusText">checking model…</span>
   </div>
 </header>
+<div class="overlay" id="rankOverlay">
+  <div class="modal">
+    <header>
+      <h1>Model rankings</h1>
+      <button class="keybtn" id="rankClose">Close</button>
+    </header>
+    <div class="body">
+      <label>Rank by: <select id="rankSelect"></select></label>
+      <div class="note" id="rankNote"></div>
+      <div id="rankList"></div>
+    </div>
+  </div>
+</div>
 <div class="keypanel" id="keyPanel">
   <input id="keyInput" type="password" placeholder="Your Ollama API key" autocomplete="off">
   <button class="save" id="keySave">Save</button>
@@ -260,7 +297,7 @@ async function checkHealth() {
     const h = await fetchJson("/api/health");
     if (h.local) {
       dotEl.className = "dot on";
-      statusEl.textContent = "local mode (no API calls)";
+      statusEl.textContent = "keyword matching (no AI model)";
     } else if (h.lmstudio) {
       dotEl.className = "dot on";
       statusEl.textContent = "model online";
@@ -282,6 +319,76 @@ function el(tag, cls, text) {
   return n;
 }
 
+function needLabel(w) { return w >= 80 ? "Essential" : w >= 55 ? "Important" : "Minor"; }
+
+function needRow(w, first) {
+  const row = el("div", "needrow" + (first ? " first" : ""));
+  row.title = "Need " + w.weight + " out of 100: how central this skill is to your task";
+  const nm = el("span", "nm", w.skill);
+  const lab = needLabel(w.weight);
+  row.appendChild(nm);
+  row.appendChild(el("span", "chip " + lab.toLowerCase(), lab));
+  const bar = el("div", "needbar");
+  const fill = document.createElement("div");
+  fill.style.width = w.weight + "%";
+  bar.appendChild(fill);
+  row.appendChild(bar);
+  return row;
+}
+
+// ---------- model rankings panel ----------
+const rankOverlay = document.getElementById("rankOverlay");
+const rankSelect = document.getElementById("rankSelect");
+let modelData = null;
+
+async function openRankings() {
+  rankOverlay.classList.add("open");
+  if (!modelData) {
+    modelData = await fetchJson("/api/models");
+    const tax = await fetchJson("/api/taxonomy");
+    rankSelect.innerHTML = "";
+    rankSelect.appendChild(new Option("Overall score", ""));
+    tax.capabilities.forEach(cap => {
+      const g = document.createElement("optgroup");
+      g.label = cap.name;
+      cap.skills.forEach(s => g.appendChild(new Option(s, s)));
+      rankSelect.appendChild(g);
+    });
+    document.getElementById("rankNote").textContent =
+      modelData.hidden + " benchmarked models are hidden because they are on the excluded list (" +
+      modelData.excluded_families.join(", ") + ").";
+  }
+  drawRankings();
+}
+
+function drawRankings() {
+  const skill = rankSelect.value;
+  const val = m => skill ? (m.skills[skill] || 0) : m.overall;
+  const rows = modelData.models.slice().sort((a, b) => val(b) - val(a));
+  const top = val(rows[0]) || 1;
+  const list = document.getElementById("rankList");
+  list.innerHTML = "";
+  rows.forEach((m, i) => {
+    const row = el("div", "rkrow");
+    row.appendChild(el("span", "recrank", "#" + (i + 1)));
+    const mid = el("div", "");
+    mid.appendChild(el("div", "", m.name));
+    const bar = el("div", "rkbar");
+    const fill = document.createElement("div");
+    fill.style.width = Math.round(100 * val(m) / top) + "%";
+    bar.appendChild(fill);
+    mid.appendChild(bar);
+    row.appendChild(mid);
+    row.appendChild(el("span", "recscore", String(val(m))));
+    list.appendChild(row);
+  });
+}
+
+document.getElementById("rankBtn").onclick = () => openRankings().catch(e => showError(e.message));
+document.getElementById("rankClose").onclick = () => rankOverlay.classList.remove("open");
+rankOverlay.onclick = e => { if (e.target === rankOverlay) rankOverlay.classList.remove("open"); };
+rankSelect.onchange = drawRankings;
+
 function renderMessage(m) {
   if (m.role === "user") {
     chatEl.appendChild(el("div", "msg user", m.content));
@@ -301,8 +408,10 @@ function renderMessage(m) {
     card.appendChild(el("div", "tag", skills.length > 1 ? "Classified as (multi-skill)" : "Classified as"));
     weights.forEach((w, i) => {
       if (skills.length > 1 && i < 2) card.appendChild(el("div", "skilllabel", i === 0 ? "Primary" : "Secondary"));
-      card.appendChild(el("div", "skill" + (i ? " sec" : ""), w.skill + "  ·  need " + w.weight));
+      card.appendChild(needRow(w, i === 0));
     });
+    card.appendChild(el("div", "legend",
+      "How much your task relies on each skill: Essential = the core of the task, Important = clearly needed, Minor = a smaller part."));
     if (obj.capability) card.appendChild(el("div", "cap", obj.capability));
     if (obj.summary) card.appendChild(el("div", "summary", obj.summary));
     const conf = (typeof obj.confidence === "number") ? obj.confidence : 0.5;
@@ -333,6 +442,18 @@ function renderMessage(m) {
       });
       card.appendChild(recbox);
     }
+    if (r.ranking && r.ranking.length > 3) {
+      const det = el("details", "all");
+      det.appendChild(el("summary", "", "See all " + r.ranking.length + " models ranked for this task"));
+      r.ranking.forEach((rec, i) => {
+        const row = el("div", "rkrow");
+        row.appendChild(el("span", "recrank", "#" + (i + 1)));
+        row.appendChild(el("span", "", rec.name));
+        row.appendChild(el("span", "recscore", "fit " + rec.fit + "%"));
+        det.appendChild(row);
+      });
+      card.appendChild(det);
+    }
     if (r.plan) {
       const planbox = el("div", "recbox");
       planbox.appendChild(el("div", "rechead",
@@ -341,7 +462,7 @@ function renderMessage(m) {
         const row = el("div", "recrow");
         const nameEl = el("div", "recname");
         nameEl.appendChild(el("div", "", st.name + " → " + st.model));
-        nameEl.appendChild(el("div", "recsub", st.skills.map(x => x.skill + " (" + x.weight + ")").join("  ·  ")));
+        nameEl.appendChild(el("div", "recsub", st.skills.map(x => x.skill + " – " + needLabel(x.weight)).join("  ·  ")));
         row.appendChild(nameEl);
         row.appendChild(el("span", "recscore", "fit " + st.fit + "%"));
         planbox.appendChild(row);
