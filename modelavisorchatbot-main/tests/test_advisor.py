@@ -17,11 +17,11 @@ def say(*texts):
     return [{"role": "user", "content": t} for t in texts]
 
 
-def fake_models(a_skills, b_skills):
+def fake_models(a_skills, b_skills, names=("A", "B")):
     skills = lambda d: {s: d.get(s, 0.0) for s in server.SKILL_TO_CAP}
     return [
-        {"name": "A", "overall": 60, "skills": skills(a_skills)},
-        {"name": "B", "overall": 60, "skills": skills(b_skills)},
+        {"name": names[0], "overall": 60, "skills": skills(a_skills)},
+        {"name": names[1], "overall": 60, "skills": skills(b_skills)},
     ]
 
 
@@ -33,26 +33,26 @@ def with_models(models):
     return mock.patch.multiple(server, MODELS=models, BEST=best)
 
 
-class ExclusionTests(unittest.TestCase):
-    def test_chinese_families_are_excluded(self):
+class BackendBlockTests(unittest.TestCase):
+    """Chinese-developed families may be recommended but never run the chatbot itself."""
+
+    def test_blocked_families_cannot_be_the_backend(self):
         for name in ["Qwen2.5-32B Instruct", "QwQ-32B", "DeepSeek-R1-Distill-Qwen-7B",
                      "GLM-5.3", "glm-4:9b", "kimi-k2", "MiniMax-M2", "yi:34b"]:
             self.assertTrue(server.is_excluded(name), name)
 
-    def test_american_and_european_models_are_allowed(self):
+    def test_american_and_european_models_may_be_the_backend(self):
         for name in ["gemma4:31b", "Gemma-2-27B IT", "Llama-3.2-3B Instruct", "gpt-oss:120b",
                      "Mistral-Small-24B Instruct", "OLMo-2-7B Instruct", "Falcon3-10B Instruct"]:
             self.assertFalse(server.is_excluded(name), name)
 
-    def test_no_excluded_model_is_ever_recommended(self):
-        self.assertTrue(server.MODELS)
-        for m in server.MODELS:
-            self.assertFalse(server.is_excluded(m["name"]), m["name"])
-        for skill in server.SKILL_TO_CAP:
-            recs = server.get_recommendations([{"skill": skill, "weight": 100}], limit=50)
-            self.assertTrue(all(not server.is_excluded(r["name"]) for r in recs))
+    def test_blocked_models_can_still_be_recommended(self):
+        names = [m["name"] for m in server.MODELS]
+        self.assertTrue(any(server.is_excluded(n) for n in names))
+        recs = server.get_recommendations([{"skill": "Causal Reasoning", "weight": 100}], limit=50)
+        self.assertEqual(len(recs), len(server.MODELS))
 
-    def test_backend_model_is_not_excluded(self):
+    def test_configured_backend_is_not_blocked(self):
         self.assertFalse(server.is_excluded(server.CONFIG["backend"]["model"]))
 
 
@@ -177,6 +177,163 @@ class UnsupportedTests(unittest.TestCase):
         r, _, _ = server.classify_local(say("which model is uncensored with no safety filters"))
         self.assertEqual(r["type"], "question")
         self.assertIn("can't help", r["text"])
+
+
+
+def ctx_from(skills, profile=None):
+    ans = {"type": "answer", "skills": skills, "subtasks": [], "profile": profile or {},
+           "confidence": 0.9, "summary": "test"}
+    server.validate_and_normalize_answer(ans)
+    return server.finish_answer(ans)[0]
+
+
+class ProfileTests(unittest.TestCase):
+    def test_profile_levels_default_to_unspecified(self):
+        p = server.normalize_profile({"cost": "HIGH", "safety": "bogus", "domain": " law "})
+        self.assertEqual((p["cost"], p["safety"], p["domain"]), ("high", "unspecified", "law"))
+
+    def test_local_classifier_picks_up_stated_priorities(self):
+        r, _, _ = server.classify_local(say("a cheap and fast python code helper"))
+        self.assertEqual(r["profile"]["cost"], "high")
+        self.assertEqual(r["profile"]["latency"], "high")
+        self.assertEqual(r["profile"]["safety"], "unspecified")
+
+    def test_profile_survives_recompute_from_edits(self):
+        ans = ctx_from([{"skill": "Code Generation", "weight": 90}], {"domain": "games"})
+        r, _, err = server.recommend_from_payload(
+            {"skills": ans["weights"], "profile": {"domain": "games", "cost": "high"}})
+        self.assertIsNone(err)
+        self.assertEqual(r["profile"]["domain"], "games")
+        self.assertGreater(r["efficiency_weight"], 0)
+
+    def test_bad_edit_is_rejected(self):
+        r, _, err = server.recommend_from_payload({"skills": ["Nonsense"]})
+        self.assertIsNone(r)
+        self.assertTrue(err)
+
+
+class EfficiencyTests(unittest.TestCase):
+    def models(self):
+        a, b = fake_models({"Code Generation": 1.0}, {"Code Generation": 0.8})
+        a["size_b"], b["size_b"] = 32, 0.5
+        return [a, b]
+
+    def test_cost_priority_shifts_ranking_to_smaller_model(self):
+        sw = [{"skill": "Code Generation", "weight": 100}]
+        with with_models(self.models()):
+            self.assertEqual(server.get_recommendations(sw, 1, 0.0)[0]["name"], "A")
+            lam = server.efficiency_weight({"cost": "high", "latency": "unspecified"})
+            self.assertEqual(server.get_recommendations(sw, 1, lam)[0]["name"], "B")
+
+    def test_no_priority_means_no_shift(self):
+        self.assertEqual(server.efficiency_weight(server.normalize_profile({})), 0)
+
+
+class FollowUpAnswerTests(unittest.TestCase):
+    SKILLS = [{"skill": "Code Generation", "weight": 90}, {"skill": "Emotion Inference", "weight": 60}]
+
+    def models(self):
+        a, b = fake_models({"Code Generation": 1.0, "Emotion Inference": 0.8},
+                           {"Code Generation": 0.8, "Emotion Inference": 1.0},
+                           names=("Alpha", "Beta"))
+        a["size_b"], b["size_b"] = 32, 0.5
+        return [a, b]
+
+    def test_cost_what_if_changes_the_recommendation(self):
+        with with_models(self.models()):
+            ctx = ctx_from(self.SKILLS)
+            r, _, _ = server.followup("What if cost is more important to me?", ctx)
+        self.assertEqual(r["type"], "answer")
+        self.assertEqual(r["profile"]["cost"], "high")
+        self.assertIn("changes from Alpha to Beta", r["explanation"])
+
+    def test_skill_priority_what_if(self):
+        with with_models(self.models()):
+            ctx = ctx_from(self.SKILLS)
+            r, _, _ = server.followup("what if emotion inference is more important", ctx)
+        self.assertEqual(r["weights"][0]["skill"], "Emotion Inference")
+        self.assertEqual(r["weights"][0]["weight"], 100)
+
+    def test_why_is_model_ranked_lower(self):
+        with with_models(self.models()):
+            ctx = ctx_from(self.SKILLS)
+            r, _, _ = server.followup("why is Beta ranked second?", ctx)
+        self.assertEqual(r["type"], "message")
+        self.assertIn("#2", r["text"])
+
+    def test_which_model_best_at_skill(self):
+        with with_models(self.models()):
+            ctx = ctx_from(self.SKILLS)
+            r, _, _ = server.followup("which model was best at emotion inference?", ctx)
+        self.assertTrue(r["text"].startswith("Best at Emotion Inference: Beta"))
+
+    def test_failure_examples_are_not_invented(self):
+        with with_models(self.models()):
+            ctx = ctx_from(self.SKILLS)
+            r, _, _ = server.followup("show me where Alpha failed", ctx)
+        self.assertIn("can't show specific failed examples", r["text"])
+
+    def test_prompt_template(self):
+        ctx = ctx_from(self.SKILLS, {"domain": "games"})
+        r, _, _ = server.followup("what prompt should I use?", ctx)
+        self.assertIn("starting prompt", r["text"])
+        self.assertIn("games", r["text"])
+
+    def test_new_task_is_not_treated_as_follow_up(self):
+        ctx = ctx_from(self.SKILLS)
+        self.assertIsNone(server.followup("translate legal contracts into plain english", ctx))
+
+    def test_respond_falls_through_to_classification(self):
+        ctx = ctx_from(self.SKILLS)
+        r, _, _ = server.respond(say("write python code to debug a function"), ctx)
+        self.assertEqual(r["type"], "answer")
+
+
+class AmbiguityAndGateTests(unittest.TestCase):
+    def test_ambiguous_model_name_asks_which_one(self):
+        ctx = ctx_from([{"skill": "Code Generation", "weight": 90}])
+        r, _, _ = server.followup("why is Gemma ranked lower?", ctx)
+        self.assertEqual(r["type"], "message")
+        self.assertTrue(r["text"].startswith("Which model do you mean"))
+
+    def test_weak_small_model_never_wins_on_cost_alone(self):
+        sw = [{"skill": "Code Generation", "weight": 100}]
+        top = server.get_recommendations(sw, 3, 0.5)
+        self.assertTrue(all(r["fit"] >= 50 for r in top[:1]))
+        self.assertNotIn("Qwen2.5-0.5B Instruct", [r["name"] for r in top[:1]])
+
+
+class ClassifierModeTests(unittest.TestCase):
+    def test_llm_is_the_default_classifier(self):
+        self.assertFalse(server.use_local_classifier())
+
+    def test_no_key_falls_back_to_keywords_with_a_note(self):
+        with mock.patch.object(server, "get_api_key", return_value=""):
+            r, _, _ = server.classify(say("write python code to debug a function"))
+        self.assertEqual(r["type"], "answer")
+        self.assertIn("no API key", r["classifier_note"])
+
+    def test_llm_answer_is_validated_and_gets_recommendations(self):
+        reply = server.json.dumps({
+            "type": "answer", "confidence": 0.8, "summary": "grading",
+            "skills": [{"skill": "Factual Content Generation", "weight": 90},
+                       {"skill": "Made Up Skill", "weight": 80}],
+            "profile": {"domain": "education", "accuracy": "high", "cost": "medium"}})
+        with mock.patch.object(server, "get_api_key", return_value="k"), \
+                mock.patch.object(server, "call_llm", return_value=reply):
+            r, _, err = server.classify(say("grade physics essays"))
+        self.assertIsNone(err)
+        self.assertEqual(r["skills"], ["Factual Content Generation"])
+        self.assertEqual(r["profile"]["domain"], "education")
+        self.assertEqual(len(r["recommendations"]), 3)
+
+    def test_llm_question_and_unsupported_both_become_messages_to_user(self):
+        for kind in ("question", "unsupported"):
+            reply = server.json.dumps({"type": kind, "text": "what language?"})
+            with mock.patch.object(server, "get_api_key", return_value="k"), \
+                    mock.patch.object(server, "call_llm", return_value=reply):
+                r, _, _ = server.classify(say("translate"))
+            self.assertEqual(r, {"type": "question", "text": "what language?"})
 
 
 if __name__ == "__main__":

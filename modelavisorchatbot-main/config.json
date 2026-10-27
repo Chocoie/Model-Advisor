@@ -8,9 +8,9 @@
     "temperature": 0.0,
     "timeout_seconds": 300
   },
-  "classifier": "local",
+  "classifier": "llm",
   "max_questions": 6,
-  "excluded_families": [
+  "blocked_backend_families": [
     "qwen", "qwq", "qvq", "deepseek", "glm", "chatglm", "kimi", "moonshot",
     "minimax", "yi", "internlm", "baichuan", "ernie", "hunyuan", "doubao",
     "zhipu", "mimo", "telechat", "skywork", "sensenova"

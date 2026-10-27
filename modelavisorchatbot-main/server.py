@@ -17,6 +17,7 @@ Run:
 """
 
 import json
+import math
 import os
 import re
 import sys
@@ -74,7 +75,7 @@ for _cap in TAXONOMY["capabilities"]:
         SKILL_TO_CAP[_skill] = _cap["name"]
 
 
-EXCLUDED_FAMILIES = [norm(f) for f in CONFIG.get("excluded_families", [])]
+EXCLUDED_FAMILIES = [norm(f) for f in CONFIG.get("blocked_backend_families", [])]
 MIN_WEIGHT = CONFIG.get("min_weight", 30)
 MAX_SKILLS = CONFIG.get("max_skills", 8)
 MAX_SUBTASKS = CONFIG.get("max_subtasks", 4)
@@ -82,17 +83,18 @@ WEAK_THRESHOLD = CONFIG.get("weak_threshold", 0.7)
 
 
 def is_excluded(name):
-    """True if a model name belongs to a blocked (Chinese-developed) family."""
+    """True if a model name belongs to a family barred from running the chatbot itself."""
     n = norm(name)
     return any(re.search(r"(?<![a-z0-9])" + re.escape(f), n) for f in EXCLUDED_FAMILIES)
 
 
 if is_excluded(CONFIG["backend"].get("model", "")):
     raise SystemExit("config.json backend model '%s' is on the excluded list "
-                     "(excluded_families). Choose a different model." % CONFIG["backend"]["model"])
+                     "(blocked_backend_families). Those models can still be recommended, but "
+                     "not used to run the chatbot. Choose a different model." % CONFIG["backend"]["model"])
 
-# Only models that are allowed ever get ranked or recommended.
-MODELS = [m for m in BENCHMARK["models"] if not is_excluded(m["name"])]
+# Every benchmarked model can be recommended; the block list only limits the chat backend.
+MODELS = list(BENCHMARK["models"])
 BEST = {}
 for _m in MODELS:
     for _s, _v in _m["skills"].items():
@@ -139,6 +141,13 @@ def build_system_prompt():
         "  most %d parts, each with a short name and its own weighted skills." % MAX_SUBTASKS,
         "- Omit 'subtasks' for a single focused task.",
         "",
+        "GOAL PROFILE:",
+        "- Also fill 'profile' from what the user said. Leave a field empty (or omit the level)",
+        "  when they did not say; never guess. Text fields: task, domain, example_inputs,",
+        "  constraints, output_format. Levels (low/medium/high): risk_tolerance, accuracy,",
+        "  creativity, safety, latency, cost. Set cost or latency to high only if the user",
+        "  stresses budget or speed.",
+        "",
         "OUT OF SCOPE:",
         "- The taxonomy covers text-based skills only. If the task needs something it does not",
         "  cover (image/video/audio generation, speech, robotics, ...), do not force a match.",
@@ -151,6 +160,8 @@ def build_system_prompt():
         'If you have enough to classify:',
         '{"type":"answer","skills":[{"skill":"<skill1>","weight":90},{"skill":"<skill2>","weight":40}],'
         '"subtasks":[{"name":"<part>","skills":[{"skill":"<skill>","weight":80}]}],'
+        '"profile":{"task":"","domain":"","example_inputs":"","constraints":"","output_format":"",'
+        '"risk_tolerance":"","accuracy":"","creativity":"","safety":"","latency":"","cost":""},'
         '"confidence":0.9,"summary":"one short sentence"}',
         "- Skill names must be EXACT names from the taxonomy, most important first.",
         "- 'confidence' is a number between 0.0 and 1.0.",
@@ -308,6 +319,7 @@ def validate_and_normalize_answer(ans):
             name = str(st.get("name") or SKILL_TO_CAP[ssw[0]["skill"]]).strip()
             subtasks.append({"name": name, "skills": ssw})
     ans["subtasks"] = subtasks
+    ans["profile"] = normalize_profile(ans.get("profile"))
 
     try:
         conf = float(ans.get("confidence", 0.5))
@@ -318,10 +330,47 @@ def validate_and_normalize_answer(ans):
     return True, None
 
 
+LEVELS = ("low", "medium", "high")
+TEXT_FIELDS = ("task", "domain", "example_inputs", "constraints", "output_format")
+LEVEL_FIELDS = ("risk_tolerance", "accuracy", "creativity", "safety", "latency", "cost")
+# How much a stated cost / latency priority shifts the ranking toward smaller models.
+PRIORITY_SHIFT = {"unspecified": 0.0, "low": 0.0, "medium": 0.1, "high": 0.25}
+
+
+def normalize_profile(raw):
+    """Goal Profile: free-text fields plus low/medium/high levels ('unspecified' if absent)."""
+    raw = raw if isinstance(raw, dict) else {}
+    out = {f: str(raw.get(f) or "").strip()[:500] for f in TEXT_FIELDS}
+    for f in LEVEL_FIELDS:
+        v = norm(raw.get(f) or "")
+        out[f] = v if v in LEVELS else "unspecified"
+    return out
+
+
+SIZES = [m["size_b"] for m in MODELS if m.get("size_b")]
+
+
+def efficiency(model):
+    """0-1, higher = smaller model (cheaper and faster to run).
+
+    Estimated from parameter count; the benchmark has no measured cost or latency.
+    """
+    size = model.get("size_b")
+    if not size or len(SIZES) < 2 or max(SIZES) == min(SIZES):
+        return 0.5
+    return 1 - math.log(size / min(SIZES)) / math.log(max(SIZES) / min(SIZES))
+
+
+def efficiency_weight(profile):
+    p = profile or {}
+    shift = PRIORITY_SHIFT.get(p.get("cost"), 0) + PRIORITY_SHIFT.get(p.get("latency"), 0)
+    return min(0.5, shift)
+
+
 def fit(model, sw):
     """Weighted share (0-1) of the best available score the model reaches.
 
-    Each skill's score is taken relative to the best allowed model on that skill, so
+    Each skill's score is taken relative to the best model on that skill, so
     skills with very different score scales count equally per unit of weight.
     """
     total = sum(x["weight"] for x in sw)
@@ -333,16 +382,27 @@ def fit(model, sw):
     return got / total if total else 0.0
 
 
-def get_recommendations(sw, limit=3):
-    """Rank allowed models by weighted fit across the needed skills."""
-    ranked = sorted(MODELS, key=lambda m: (-fit(m, sw), -m["overall"]))
+def match_score(model, sw, lam):
+    """Skill fit, scaled up for smaller models by weight lam.
+
+    Scaling (not adding) means a small model that is weak at the task never wins just
+    because it is cheap.
+    """
+    return fit(model, sw) * (1 - lam + lam * efficiency(model))
+
+
+def get_recommendations(sw, limit=3, lam=0.0):
+    """Rank models by weighted skill fit (and efficiency when cost/latency matter)."""
+    ranked = sorted(MODELS, key=lambda m: (-match_score(m, sw, lam), -m["overall"]))
     recs = []
     for m in ranked[:limit]:
         scores = {x["skill"]: m["skills"].get(x["skill"]) for x in sw}
         recs.append({
             "name": m["name"],
             "fit": round(100 * fit(m, sw), 1),
+            "score": round(100 * match_score(m, sw, lam), 1),
             "overall": m["overall"],
+            "size_b": m.get("size_b"),
             "scores": scores,
             "relative": {s: round(100 * (v or 0) / BEST[s], 1) if BEST.get(s) else 0
                          for s, v in scores.items()},
@@ -350,7 +410,7 @@ def get_recommendations(sw, limit=3):
     return recs
 
 
-def build_plan(subtasks, sw):
+def build_plan(subtasks, sw, lam=0.0):
     """Compare the best single model with a per-part split for multi-part projects.
 
     A part gets its own model only when the best single model reaches under
@@ -359,18 +419,18 @@ def build_plan(subtasks, sw):
     if len(subtasks) < 2:
         return None
     by_name = {m["name"]: m for m in MODELS}
-    single = get_recommendations(sw, 1)[0]["name"]
+    single = get_recommendations(sw, 1, lam)[0]["name"]
     parts, split = [], False
     for st in subtasks:
-        best = get_recommendations(st["skills"], 1)[0]
-        single_fit = round(100 * fit(by_name[single], st["skills"]), 1)
-        weak = best["name"] != single and single_fit < WEAK_THRESHOLD * best["fit"]
+        best = get_recommendations(st["skills"], 1, lam)[0]
+        single_score = round(100 * match_score(by_name[single], st["skills"], lam), 1)
+        weak = best["name"] != single and single_score < WEAK_THRESHOLD * best["score"]
         split = split or weak
         parts.append({
             "name": st["name"], "skills": st["skills"],
             "model": best["name"] if weak else single,
-            "fit": best["fit"] if weak else single_fit,
-            "single_model_fit": single_fit, "weak": weak,
+            "fit": best["score"] if weak else single_score,
+            "single_model_fit": single_score, "weak": weak,
         })
     return {"single_model": single, "split": split, "subtasks": parts}
 
@@ -382,10 +442,17 @@ def need_label(w):
 
 def build_explanation(ans):
     sw, top, plan = ans["weights"], ans["recommendations"][0], ans.get("plan")
+    lam = ans.get("efficiency_weight", 0)
     need = ", ".join("%s (%s)" % (x["skill"], need_label(x["weight"])) for x in sw)
-    parts = ["Based on your needs, your use case calls for " + need + "."]
+    parts = []
+    if ans.get("change_note"):
+        parts.append(ans["change_note"])
+    parts.append("Based on your needs, your use case calls for " + need + ".")
     parts.append("For a single model, we recommend %s, which reaches %.0f%% of the best "
                  "available score across these weighted skills." % (top["name"], top["fit"]))
+    if lam:
+        parts.append("Cost and speed matter to you, so smaller models get a boost "
+                     "(estimated from model size, not measured).")
     weak = [s for s, p in top["relative"].items() if p < 100 * WEAK_THRESHOLD]
     if weak:
         parts.append("Its weaker spot%s: %s." % ("s" if len(weak) > 1 else "", ", ".join(weak)))
@@ -397,16 +464,21 @@ def build_explanation(ans):
         parts.append("The parts of this project are close enough that one model covers them all.")
     if ans.get("unsupported_note"):
         parts.append(ans["unsupported_note"])
+    parts.append("Models are scored from published benchmark results for these skills, "
+                 "not by asking an AI which one is better.")
     return " ".join(parts)
 
 
 def finish_answer(ans):
     """Attach recommendations, split plan and explanation to a validated answer."""
-    ans["ranking"] = get_recommendations(ans["weights"], limit=len(MODELS))
+    lam = efficiency_weight(ans.get("profile"))
+    ans["efficiency_weight"] = lam
+    ans["ranking"] = get_recommendations(ans["weights"], len(MODELS), lam)
     ans["recommendations"] = ans["ranking"][:3]
-    ans["plan"] = build_plan(ans.get("subtasks", []), ans["weights"])
+    ans["plan"] = build_plan(ans.get("subtasks", []), ans["weights"], lam)
     ans["explanation"] = build_explanation(ans)
-    extra = ("recommendations", "ranking", "plan", "explanation")
+    extra = ("recommendations", "ranking", "plan", "explanation", "efficiency_weight",
+             "change_note", "classifier_note")
     clean = {k: v for k, v in ans.items() if k not in extra}
     return ans, json.dumps(clean), None
 
@@ -554,6 +626,7 @@ def classify_local(messages):
         ans["unsupported_note"] = (
             "Note: we have no benchmark data for %s, so this recommendation covers only "
             "the text-based parts of your task." % ", ".join(unsupported))
+    ans["profile"] = local_profile(users)
     validate_and_normalize_answer(ans)
     return finish_answer(ans)
 
@@ -562,6 +635,13 @@ def classify(messages):
     """Run the model, enforce the JSON contract, and validate the answer."""
     if use_local_classifier():
         return classify_local(messages)
+    if CONFIG["backend"]["base_url"].startswith("https") and not get_api_key():
+        result, content, err = classify_local(messages)
+        if result and result.get("type") == "answer":
+            result["classifier_note"] = (
+                "Rough keyword match: no API key is set, so the AI classifier was not used. "
+                "Add an Ollama API key for better results.")
+        return result, content, err
     sys_prompt = build_system_prompt()
     full = [{"role": "system", "content": sys_prompt}] + list(messages)
 
@@ -596,6 +676,224 @@ def classify(messages):
         return finish_answer(parsed)
 
     return None, raw, "Unknown response type: " + str(ptype)
+
+
+PROFILE_CUES = {
+    "accuracy": r"accura|correct|precise|factual|reliab|exact",
+    "creativity": r"creativ|stor(y|ies)|poem|brainstorm|marketing|novel|imagina",
+    "safety": r"safe|harm|bias|toxic|moderat|children|kids|compliance",
+    "latency": r"\bfast|real[- ]time|latency|quick|instant|responsive",
+    "cost": r"cheap|\bcost|budget|afford|inexpensive|low[- ]price",
+}
+
+
+def local_profile(users):
+    """Best-effort Goal Profile from keywords. Only fills what the text actually states."""
+    text = norm(" ".join(users))
+    profile = {"task": (users[0] if users else "").strip()[:200]}
+    for field, rx in PROFILE_CUES.items():
+        if re.search(rx, text):
+            profile[field] = "high"
+    return profile
+
+
+def recommend_from_payload(body):
+    """Recompute recommendations from an edited profile / edited skill weights."""
+    ans = {
+        "type": "answer",
+        "skills": body.get("skills"),
+        "subtasks": body.get("subtasks"),
+        "profile": body.get("profile"),
+        "confidence": body.get("confidence", 0.5),
+        "summary": body.get("summary", ""),
+    }
+    if body.get("unsupported_note"):
+        ans["unsupported_note"] = str(body["unsupported_note"])[:500]
+    ok, msg = validate_and_normalize_answer(ans)
+    if not ok:
+        return None, "", msg
+    return finish_answer(ans)
+
+
+# ---------------------------------------------------------------------------
+# Follow-up questions about an existing recommendation. Answered from the
+# benchmark data only; nothing here asks a model for its opinion.
+# ---------------------------------------------------------------------------
+
+CHANGE_RX = r"more important|prioriti[sz]|what if|instead|matters? more|care more|focus on|rather"
+GENERIC_TOKENS = {"instruct", "preview", "it", "v1"}
+
+
+def find_skill(t):
+    """The taxonomy skill best matching a phrase (name or keywords), or None."""
+    best, best_score = None, 0
+    for cap in TAXONOMY["capabilities"]:
+        for skill in cap["skills"]:
+            hits = [kw for kw in KEYWORDS.get(skill, [])
+                    if re.search(r"(?<![a-z0-9])" + re.escape(kw), t)]
+            score = len(hits) + (3 if norm(skill) in t else 0)
+            if score > best_score:
+                best, best_score = skill, score
+    return best
+
+
+def find_models(t):
+    """Models whose name tokens appear in the phrase; several means ambiguous."""
+    words = set(re.findall(r"[a-z0-9.]+", t))
+    scored = []
+    for m in MODELS:
+        toks = [x for x in re.split(r"[-\s]+", norm(m["name"]))
+                if x not in GENERIC_TOKENS and len(x) > 1]
+        scored.append((sum(1 for x in toks if x in words), m))
+    top = max((s for s, _ in scored), default=0)
+    return [m for s, m in scored if s == top] if top else []
+
+
+def _context_answer(ctx):
+    if not isinstance(ctx, dict):
+        return None
+    ans = {"type": "answer", "skills": ctx.get("weights"), "subtasks": ctx.get("subtasks"),
+           "profile": ctx.get("profile"), "confidence": ctx.get("confidence", 0.5),
+           "summary": ctx.get("summary", "")}
+    if ctx.get("unsupported_note"):
+        ans["unsupported_note"] = str(ctx["unsupported_note"])[:500]
+    return ans if validate_and_normalize_answer(ans)[0] else None
+
+
+def _message(text):
+    msg = {"type": "message", "text": text}
+    return msg, json.dumps(msg), None
+
+
+def _pick_model(t):
+    """(model, None) for one clear match, (None, question) if ambiguous, (None, None) if none."""
+    found = find_models(t)
+    if len(found) == 1:
+        return found[0], None
+    if 1 < len(found) <= 8:
+        return None, "Which model do you mean: " + ", ".join(m["name"] for m in found) + "?"
+    return None, None
+
+
+def _top_name(ans):
+    return get_recommendations(ans["weights"], 1, efficiency_weight(ans["profile"]))[0]["name"]
+
+
+def _why(ans, model):
+    full, _, _ = finish_answer(dict(ans))
+    names = [r["name"] for r in full["ranking"]]
+    rank = names.index(model["name"]) + 1
+    top, mine = full["ranking"][0], full["ranking"][rank - 1]
+    if rank == 1:
+        return "%s is ranked #1 for your needs (fit %.0f%%)." % (model["name"], mine["fit"])
+    gaps = sorted(((mine["relative"][s] - top["relative"][s], s) for s in mine["relative"]))
+    lines = ["%s is #%d (fit %.0f%%) behind %s (fit %.0f%%)." % (
+        model["name"], rank, mine["fit"], top["name"], top["fit"])]
+    behind = [(d, s) for d, s in gaps if d < 0][:3]
+    if behind:
+        lines.append("Biggest gaps vs the leader: " + "; ".join(
+            "%s (%.0f%% of best vs %.0f%%)" % (s, mine["relative"][s], top["relative"][s])
+            for _, s in behind) + ".")
+    ahead = [s for d, s in reversed(gaps) if d > 0][:2]
+    if ahead:
+        lines.append("It does better than the leader on: " + ", ".join(ahead) + ".")
+    if full.get("efficiency_weight"):
+        lines.append("Your cost/speed priority is also counted (size-based estimate).")
+    return " ".join(lines)
+
+
+def _weak_spots(ans, model):
+    rec = get_recommendations(ans["weights"], len(MODELS))
+    mine = next(r for r in rec if r["name"] == model["name"])
+    low = sorted(mine["relative"].items(), key=lambda kv: kv[1])[:3]
+    return ("The benchmark has scores per skill, not individual test answers, so I can't show "
+            "specific failed examples. Where %s scores lowest relative to the best model: %s."
+            % (model["name"], "; ".join("%s (%.0f%% of best)" % kv for kv in low)))
+
+
+def _prompt_template(ans):
+    p = ans["profile"]
+    skills = ", ".join(x["skill"] for x in ans["weights"])
+    task = p["task"] or ans.get("summary") or "the task described below"
+    return (
+        "Here is a starting prompt for %s (built from your goal profile; ModelAdvisor has not "
+        "tested prompt variants yet):\n\n"
+        "You are an assistant for: %s.\n"
+        "Domain: %s\n"
+        "Focus on these abilities: %s.\n"
+        "Constraints: %s\n"
+        "Output format: %s\n"
+        "Work step by step, then give the final answer in the format above.\n"
+        "Example input/output: %s"
+        % (_top_name(ans), task, p["domain"] or "(add your domain)", skills,
+           p["constraints"] or "(add any limits)", p["output_format"] or "(state the format you want)",
+           p["example_inputs"] or "(add two examples)"))
+
+
+def followup(text, ctx):
+    """Handle questions about the current recommendation; None if text is a new task."""
+    t = norm(text)
+    ans = _context_answer(ctx)
+    if not ans:
+        return None
+
+    if re.search(CHANGE_RX, t):
+        profile, changed = dict(ans["profile"]), []
+        if re.search(r"\b(cost|cheap|cheaper|budget|price|afford\w*)\b", t):
+            profile["cost"] = "high"
+            changed.append("cost")
+        if re.search(r"\b(fast|faster|speed|latency|quick\w*|real[- ]time)\b", t):
+            profile["latency"] = "high"
+            changed.append("speed")
+        weights = ans["weights"]
+        if not changed:
+            skill = find_skill(t)
+            if skill:
+                weights = [{"skill": skill, "weight": 100}] + [
+                    {"skill": x["skill"], "weight": round(x["weight"] * 0.7)}
+                    for x in ans["weights"] if x["skill"] != skill]
+                changed.append(skill)
+        if changed:
+            before = _top_name(ans)
+            ans["profile"], ans["skills"] = profile, weights
+            validate_and_normalize_answer(ans)
+            after = _top_name(ans)
+            what = " and ".join(changed)
+            ans["change_note"] = (
+                "With %s prioritized, the top model %s." % (
+                    what, "stays " + after if after == before
+                    else "changes from %s to %s" % (before, after)))
+            return finish_answer(ans)
+
+    if re.search(r"\bwhy\b", t):
+        model, ask = _pick_model(t)
+        if model or ask:
+            return _message(_why(ans, model) if model else ask)
+    if re.search(r"fail|mistake|wrong|weak|bad at|struggl|worst", t):
+        model, ask = _pick_model(t)
+        if ask:
+            return _message(ask)
+        model = model or next(m for m in MODELS if m["name"] == _top_name(ans))
+        return _message(_weak_spots(ans, model))
+    if re.search(r"\b(which|what)\b.*\b(best|better|strongest)\b", t):
+        skill = find_skill(t)
+        if skill:
+            recs = get_recommendations([{"skill": skill, "weight": 100}], 3)
+            return _message("Best at %s: %s." % (skill, "; ".join(
+                "%s (score %s)" % (r["name"], r["scores"][skill]) for r in recs)))
+    if re.search(r"\bprompt\b", t):
+        return _message(_prompt_template(ans))
+    return None
+
+
+def respond(messages, context=None):
+    """Answer a follow-up about the current recommendation, else classify a new task."""
+    if context:
+        users = [m for m in messages if m.get("role") == "user"]
+        reply = followup(users[-1].get("content", ""), context) if users else None
+        if reply:
+            return reply
+    return classify(messages)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -642,8 +940,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {
                 "models": sorted(MODELS, key=lambda m: -m["overall"]),
                 "best": BEST,
-                "excluded_families": CONFIG.get("excluded_families", []),
-                "hidden": len(BENCHMARK["models"]) - len(MODELS),
+                "blocked_backend_families": CONFIG.get("blocked_backend_families", []),
             })
             return
         if path == "/api/config":
@@ -660,16 +957,24 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         self._bind_user_key()
-        if self.path.split("?")[0] != "/api/chat":
+        path = self.path.split("?")[0]
+        body = self._read_body()
+        if path == "/api/recommend":
+            result, content, error = recommend_from_payload(body)
+            if error:
+                self._send(200, {"ok": False, "error": error})
+            else:
+                self._send(200, {"ok": True, "result": result, "content": content})
+            return
+        if path != "/api/chat":
             self._send(404, {"error": "not found"})
             return
-        body = self._read_body()
         messages = body.get("messages", [])
         if not messages:
             self._send(400, {"error": "no messages"})
             return
         try:
-            result, content, error = classify(messages)
+            result, content, error = respond(messages, body.get("context"))
         except urllib.error.HTTPError as e:
             detail = ""
             try:
@@ -704,6 +1009,9 @@ class Handler(BaseHTTPRequestHandler):
             return {"lmstudio": True, "endpoint": "local", "local": True,
                     "server_key": False, "using_user_key": False}
         lm = CONFIG["backend"]
+        if lm["base_url"].startswith("https") and not get_api_key():
+            return {"lmstudio": False, "no_key": True, "endpoint": None,
+                    "server_key": False, "using_user_key": False}
         base = lm["base_url"].rstrip("/")
         for endpoint in ("/models", "/api/tags"):
             try:

@@ -32,8 +32,8 @@ The app already speaks the OpenAI-compatible API, so the switch is configuration
 - Ollama on the GPU box listens on port 11434. vLLM and LM Studio use the same
   `/v1/chat/completions` shape (vLLM default port 8000, LM Studio 1234).
 - Leave `api_key` empty if the server is private and has no token.
-- `classifier` must be `"llm"` for the model to be called; `"local"` makes no API calls.
-- The model name must not match `excluded_families` (the server refuses to start if it does).
+- `classifier` is `"llm"` by default. `"local"` is the keyword matcher and makes no API calls; the app also falls back to it automatically when no API key is set.
+- The model name must not match `blocked_backend_families` (the server refuses to start if it does). Blocked families (Qwen, DeepSeek, GLM, Kimi and similar) can still be recommended to users; they just cannot run the chatbot or classifier.
   With our own server we choose which models get pulled, so the exclusion is easy to enforce.
 
 ## Securing it
@@ -45,16 +45,6 @@ The app already speaks the OpenAI-compatible API, so the switch is configuration
 3. **If the model server must be reachable over the network,** put a reverse proxy with a
    bearer token in front of it and set that token as `MODEL_SERVER_TOKEN` in `.env`.
 4. **Never commit the token.** `.env` is already in `.gitignore`.
-
-## Protection to add (not built yet; matters on either setup)
-
-Every request reaches the model, so on a GPU server abuse costs capacity.
-
-- Per-IP rate limit (for example 20 requests per minute plus a daily cap).
-- Maximum characters per message and maximum messages per conversation.
-- A global daily budget on the shared key / GPU; when it is hit, the app asks the user to
-  bring their own key (the quota message in `server.py` already exists for 402/403/429).
-- Request queue or concurrency limit so one user cannot block the GPU for everyone.
 
 ## Picking hardware and a model
 
@@ -68,10 +58,9 @@ Every request reaches the model, so on a GPU server abuse costs capacity.
 ## Checklist for cutover
 
 1. Provision the GPU box and install Ollama (or vLLM).
-2. Pull only allowed models; confirm the model name is not on `excluded_families`.
+2. Pull only allowed models; confirm the model name is not on `blocked_backend_families`.
 3. Lock the model port to the app server only.
 4. Update `config.json` `backend` and set `classifier` to `"llm"`.
 5. Set `MODEL_SERVER_TOKEN` in `.env` if a token is used.
 6. Run `python -m unittest discover tests`, then try a few real prompts through the UI.
-7. Add the rate limits and message caps above before opening the app to anyone else.
-8. Remove the UI "API key" button (or leave it off) if users no longer bring their own key.
+7. Remove the UI "API key" button (or leave it off) if users no longer bring their own key.

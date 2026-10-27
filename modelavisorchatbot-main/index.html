@@ -142,6 +142,15 @@
   .rkrow { display: grid; grid-template-columns: 28px 1fr 70px; gap: 8px; align-items: center; padding: 5px 0; font-size: 13.5px; border-bottom: 1px solid #f3f4f6; }
   .rkbar { height: 5px; border-radius: 3px; background: #e5e7eb; margin-top: 3px; overflow: hidden; }
   .rkbar > div { height: 100%; background: var(--accent); }
+  .prow { display: grid; grid-template-columns: 170px 1fr 44px; gap: 8px; margin: 5px 0; align-items: center; font-size: 12.5px; }
+  .prow label { color: var(--muted); }
+  .prow input, .prow select { font: inherit; font-size: 12.5px; padding: 5px 7px; border: 1px solid var(--border); border-radius: 6px; min-width: 0; }
+  .prow input[type=range] { padding: 0; }
+  .prow .val { text-align: right; color: var(--muted); }
+  .prow.wide { grid-template-columns: 170px 1fr; }
+  .prow.slider { grid-template-columns: 170px 1fr 44px; }
+  button.upd { margin-top: 8px; border: none; background: var(--accent); color: #fff; font: inherit; font-size: 13px; font-weight: 600; padding: 7px 14px; border-radius: 6px; cursor: pointer; }
+  button.upd:disabled { opacity: .5; }
   .err { align-self: center; background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; border-radius: 8px; padding: 10px 14px; font-size: 13px; max-width: 85%; }
   .composer {
     border-top: 1px solid var(--border);
@@ -298,6 +307,9 @@ async function checkHealth() {
     if (h.local) {
       dotEl.className = "dot on";
       statusEl.textContent = "keyword matching (no AI model)";
+    } else if (h.no_key) {
+      dotEl.className = "dot";
+      statusEl.textContent = "no API key: using keyword matching";
     } else if (h.lmstudio) {
       dotEl.className = "dot on";
       statusEl.textContent = "model online";
@@ -317,6 +329,94 @@ function el(tag, cls, text) {
   if (cls) n.className = cls;
   if (text != null) n.textContent = text;
   return n;
+}
+
+function fitText(r, rec) {
+  return (r.efficiency_weight > 0 && rec.score !== undefined)
+    ? "match " + rec.score + "% (skill fit " + rec.fit + "%)" : "fit " + rec.fit + "%";
+}
+
+const TEXT_FIELDS = [["task", "Task"], ["domain", "Domain"], ["example_inputs", "Example inputs / outputs"],
+  ["constraints", "Constraints"], ["output_format", "Preferred output format"]];
+const LEVEL_FIELDS = [["risk_tolerance", "Risk tolerance"], ["accuracy", "Accuracy"], ["creativity", "Creativity"],
+  ["safety", "Safety"], ["latency", "Speed matters"], ["cost", "Cost matters"]];
+
+function profileEditor(m, r) {
+  const det = el("details", "all");
+  det.open = !!m.editOpen;
+  det.ontoggle = () => { m.editOpen = det.open; };
+  det.appendChild(el("summary", "", "Review and edit your goal profile"));
+  const profile = r.profile || {};
+  const texts = {}, levels = {}, sliders = {};
+  TEXT_FIELDS.forEach(([k, label]) => {
+    const row = el("div", "prow wide");
+    row.appendChild(el("label", "", label));
+    const inp = document.createElement("input");
+    inp.value = profile[k] || "";
+    texts[k] = inp;
+    row.appendChild(inp);
+    det.appendChild(row);
+  });
+  LEVEL_FIELDS.forEach(([k, label]) => {
+    const row = el("div", "prow wide");
+    row.appendChild(el("label", "", label));
+    const sel = document.createElement("select");
+    ["unspecified", "low", "medium", "high"].forEach(v => sel.appendChild(new Option(v, v)));
+    sel.value = profile[k] || "unspecified";
+    levels[k] = sel;
+    row.appendChild(sel);
+    det.appendChild(row);
+  });
+  det.appendChild(el("div", "legend", "Skill importance (how much each skill counts in the ranking):"));
+  (r.weights || []).forEach(w => {
+    const row = el("div", "prow slider");
+    row.appendChild(el("label", "", w.skill));
+    const rng = document.createElement("input");
+    rng.type = "range"; rng.min = 1; rng.max = 100; rng.value = w.weight;
+    const val = el("span", "val", String(w.weight));
+    rng.oninput = () => { val.textContent = rng.value; };
+    sliders[w.skill] = rng;
+    row.appendChild(rng);
+    row.appendChild(val);
+    det.appendChild(row);
+  });
+  const btn = el("button", "upd", "Update recommendation");
+  btn.onclick = async () => {
+    btn.disabled = true;
+    try {
+      const prof = {};
+      Object.keys(texts).forEach(k => { prof[k] = texts[k].value; });
+      Object.keys(levels).forEach(k => { prof[k] = levels[k].value; });
+      const skills = (r.weights || []).map(w => ({ skill: w.skill, weight: +sliders[w.skill].value }));
+      const data = await fetchJson("/api/recommend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skills, subtasks: r.subtasks, profile: prof, confidence: r.confidence,
+                               summary: r.summary, unsupported_note: r.unsupported_note })
+      });
+      if (!data.ok) { showError(data.error || "Could not update."); return; }
+      m.result = data.result; m.content = data.content; m.recs = data.result.recommendations;
+      m.editOpen = true;
+      render();
+    } catch (e) { showError(e.message); } finally { btn.disabled = false; }
+  };
+  det.appendChild(btn);
+  return det;
+}
+
+// The current recommendation, sent with each chat message so follow-ups can refer to it.
+function lastContext() {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== "assistant" || !m.result) continue;
+    if (m.result.type === "answer") {
+      const r = m.result;
+      return { weights: r.weights, subtasks: r.subtasks, profile: r.profile, confidence: r.confidence,
+               summary: r.summary, unsupported_note: r.unsupported_note };
+    }
+    if (m.result.type === "question") return null;
+  }
+  return null;
 }
 
 function needLabel(w) { return w >= 80 ? "Essential" : w >= 55 ? "Important" : "Minor"; }
@@ -355,8 +455,8 @@ async function openRankings() {
       rankSelect.appendChild(g);
     });
     document.getElementById("rankNote").textContent =
-      modelData.hidden + " benchmarked models are hidden because they are on the excluded list (" +
-      modelData.excluded_families.join(", ") + ").";
+      "All benchmarked models are shown. These families can be recommended but cannot run this " +
+      "chatbot's own classifier: " + modelData.blocked_backend_families.join(", ") + ".";
   }
   drawRankings();
 }
@@ -397,7 +497,7 @@ function renderMessage(m) {
   // assistant
   let obj = null;
   try { obj = JSON.parse(m.content); } catch (e) { obj = null; }
-  if (obj && obj.type === "question") {
+  if (obj && (obj.type === "question" || obj.type === "message")) {
     chatEl.appendChild(el("div", "msg bot", obj.text || "(no text)"));
   } else if (obj && obj.type === "answer") {
     const r = m.result || obj;
@@ -412,6 +512,7 @@ function renderMessage(m) {
     });
     card.appendChild(el("div", "legend",
       "How much your task relies on each skill: Essential = the core of the task, Important = clearly needed, Minor = a smaller part."));
+    if (r.classifier_note) card.appendChild(el("div", "legend", r.classifier_note));
     if (obj.capability) card.appendChild(el("div", "cap", obj.capability));
     if (obj.summary) card.appendChild(el("div", "summary", obj.summary));
     const conf = (typeof obj.confidence === "number") ? obj.confidence : 0.5;
@@ -436,10 +537,12 @@ function renderMessage(m) {
           nameEl.appendChild(sub);
         }
         row.appendChild(nameEl);
-        row.appendChild(el("span", "recscore", "fit " + rec.fit + "%"));
+        row.appendChild(el("span", "recscore", fitText(r, rec)));
         if (i === 0) row.appendChild(el("span", "recbadge", "Recommended"));
         recbox.appendChild(row);
       });
+      if (r.efficiency_weight > 0) recbox.appendChild(el("div", "legend",
+        "Cost/speed priority is on: smaller models get a boost. This is estimated from model size, not measured."));
       card.appendChild(recbox);
     }
     if (r.ranking && r.ranking.length > 3) {
@@ -449,7 +552,7 @@ function renderMessage(m) {
         const row = el("div", "rkrow");
         row.appendChild(el("span", "recrank", "#" + (i + 1)));
         row.appendChild(el("span", "", rec.name));
-        row.appendChild(el("span", "recscore", "fit " + rec.fit + "%"));
+        row.appendChild(el("span", "recscore", fitText(r, rec)));
         det.appendChild(row);
       });
       card.appendChild(det);
@@ -470,6 +573,7 @@ function renderMessage(m) {
       card.appendChild(planbox);
     }
     if (r.explanation) card.appendChild(el("div", "summary", r.explanation));
+    card.appendChild(profileEditor(m, r));
     chatEl.appendChild(card);
   } else {
     chatEl.appendChild(el("div", "msg bot", m.content));
@@ -526,7 +630,7 @@ async function send() {
     const data = await fetchJson("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: messages.map(m => ({ role: m.role, content: m.content })) })
+      body: JSON.stringify({ messages: messages.map(m => ({ role: m.role, content: m.content })), context: lastContext() })
     });
     typing.remove();
     if (!data.ok) {
