@@ -23,8 +23,8 @@ def next_action(history):
     if result["type"] == "question":
         return {"type": "question", "question": result["text"]}
     if result["type"] == "answer":
-        return {"type": "ready", "skills": result["skills"]}
-
+        return {"type": "ready", "skills": result["skills"], "weights": result["weights"]}
+    
 def explain_results(skills, results):
     """
     Build the reply shown with the rankings: the plain list, plus a short
@@ -50,12 +50,33 @@ def explain_results(skills, results):
     except Exception:
         return plain                           # API down or no key
 
-def plain_list(skills, results):
-    """Format the detected skills and top-ranked models as a plain text list."""
+def plain_list(weights, results):
+    """Format the weighted skills and top models as a plain text list."""
+    label = lambda w: "essential" if w >= 80 else "important" if w >= 55 else "minor"
     lines = ["Skills detected:"]
-    for s in skills:
-        lines.append(f"- {s}")
+    for x in weights:
+        lines.append(f"- {x['skill']} ({label(x['weight'])})")
     lines.append("Top Models:")
     for i, r in enumerate(results, start=1):
-        lines.append(f"{i}. {r['model']} (avg rank {r['avg_rank']})")
+        lines.append(f"{i}. {r['model']} (match {r['fit'] / 10:.1f}/10)")
     return "\n".join(lines)
+
+def generate_title(history):
+    """Ask the LLM for a short conversation title. Returns None if it fails."""
+    title_prompt = (
+        "Give a short title (3 to 6 words) naming the type of AI model this user is looking for, "
+        "based on the conversation. Example: 'Architectural floor plan generator'. "
+        'Respond with ONLY this JSON: {"title": "..."}'
+    )
+    try:
+        full = [{"role": "system", "content": title_prompt}] + history
+        raw = call_llm(full)
+        parsed, err = extract_json(raw)
+        if not parsed:
+            print("generate_title: bad reply:", err, raw[:200])
+            return None
+        title = str(parsed.get("title", "")).strip().strip('"').strip("'")
+        return title[:60] or None
+    except Exception as e:
+        print("generate_title failed:", repr(e))
+        return None

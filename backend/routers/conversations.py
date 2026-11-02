@@ -45,8 +45,8 @@ def send_message(conversation_id: str, request: MessageRequest,
         return MessageResponse(reply=reply)
     
     skills = action["skills"]
-    results = rank_skills(skills)
-    reply = explain_results(skills, results)
+    results = rank_skills(action["weights"])
+    reply = explain_results(action["weights"], results)
     add_message(conversation_id, "assistant", reply)
 
     return MessageResponse(reply=reply, skills=skills, results=results)

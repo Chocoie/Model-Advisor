@@ -35,28 +35,30 @@ def rank_skill(skill):
     rank_by_skill.sort(key= lambda x:x[1], reverse=True)
     return rank_by_skill
 
-def rank_skills(skills, top_n=3):
+def rank_skills(weights, top_n=3):
     """
-    Rank models across several skills by average rank (lower = better).
-    Returns the top_n models as dicts: {"model", "avg_rank", "scores"}.
-    Raises ValueError if skills is empty or contains an unknown skill.
+    Rank models by weighted fit: each skill score is divided by the best model's
+    score on that skill, then averaged using the skill weights.
+    weights: [{"skill", "weight"}]. Returns [{"model", "fit", "scores"}], fit in %.
+    Raises ValueError if weights is empty or contains an unknown skill.
     """
-    if not skills:
+    if not weights:
         raise ValueError("No skills given")
-    for skill in skills:
-       if skill not in VALID_SKILLS:
-           raise ValueError(f"Unknown skill: {skill}")
+    for w in weights:
+        if w["skill"] not in VALID_SKILLS:
+            raise ValueError(f"Unknown skill: {w['skill']}")
+        
+    # get skill scores of best model
+    best = {w["skill"]: max(skill_score(m, w["skill"]) for m in SCORES) for w in weights}
+    total = sum(w["weight"] for w in weights) 
 
-    rank_total = {model : 0 for model in SCORES}
-    skill_scores = {model: {} for model in SCORES}
-
-    for skill in skills:
-        for position, (model, score) in enumerate(rank_skill(skill), start=1):
-            rank_total[model] += position
-            skill_scores[model][skill] = round(score, 3)
-    results = [
-        {"model": m, "avg_rank": round(rank_total[m] / len(skills), 3), "scores": skill_scores[m]}
-        for m in SCORES
-    ]
-    results.sort(key= lambda x:x["avg_rank"])
+    results = []
+    for m in SCORES:
+        # get each skil's scores
+        scores = {w["skill"]: round(skill_score(m, w["skill"]), 3) for w in weights}
+        # divide by best score for skill to scale score to [0,1]
+        fit = sum(w["weight"] * scores[w["skill"]] / best[w["skill"]]
+                  for w in weights if best[w["skill"]]) / total
+        results.append({"model": m, "fit": round(100 * fit, 1), "scores": scores})
+    results.sort(key=lambda x: -x["fit"])
     return results[:top_n]

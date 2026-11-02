@@ -16,13 +16,19 @@ class MessageRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
 
 # --- Rankings ---
+class SkillWeight(BaseModel):
+    skill: str
+    weight: int = Field(default=100, ge=1, le=100)
+    
 class RankingRequest(BaseModel): # Top n models ranking request
-    skills: list[str]
+    skills: list[str] = []
+    weights: list[SkillWeight] | None = None 
     top_n: int = Field(default=3, ge=2, le= 30)
 
 class ModelRanking(BaseModel): # One model only
     model: str
-    avg_rank: float
+    avg_rank: float | None = None
+    fit: float | None = None   
     scores: dict[str, float]
 
 class RankingResponse(BaseModel): #  Top n models results

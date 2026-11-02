@@ -15,7 +15,11 @@ def list_skills():
 @router.post("/ranking", response_model=RankingResponse)
 def get_ranking(request: RankingRequest):
     try:
-        results = rank_skills(request.skills, request.top_n)
+        if request.weights:
+            weights = [w.model_dump() for w in request.weights]
+        else:
+            weights = [{"skill": s, "weight": 100} for s in request.skills] 
+        results = rank_skills(weights, request.top_n)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return RankingResponse(results=results)
