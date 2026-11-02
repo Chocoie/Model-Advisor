@@ -1,13 +1,10 @@
 """
-ranking_data.py: ranks models for the skills found by the Chat Agent.
-
-A model's skill score = sum of its scores on that skill's datasets.
-Models are ranked per skill, then combined by average rank (lower is better).
-The scores come from process_ranking_data.py.
+Model ranking logic.
+Scores each model on a skill from its benchmark results and returns the top models
+for one or more skills.
 """
 
-from pathlib import Path
-from process_ranking_data import MAPPING, SCORES, VALID_SKILLS, get_standardized_keys
+from services.data_loader import MAPPING, SCORES, VALID_SKILLS, get_standardized_keys
 
 # ----- 1. Skill score ----------------------------------------
 

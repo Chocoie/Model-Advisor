@@ -1,18 +1,11 @@
 """
-chat_agent.py: connects the conversation to the LLM team's code.
-
-Contract main.py relies on:
-  next_action(history) -> {"type": "question", "question": text}
-                       or {"type": "ready", "skills": list of skill names}
-  explain_results(skills, results) -> text
-
-next_action uses llm_classifier.classify (keyword or LLM mode, set in data/config.json).
-explain_results adds an LLM-written explanation when the LLM is on,
-and falls back to a plain list otherwise.
+Chat agent logic.
+Decides the next step in a conversation (ask a follow-up question or detect skills)
+and turns ranking results into a readable reply.
 """
 
 import json
-from llm_classifier import classify, call_llm, extract_json, use_local_classifier, classify_local
+from services.llm_classifier import classify, call_llm, extract_json, use_local_classifier, classify_local
 
 def next_action(history):
     """

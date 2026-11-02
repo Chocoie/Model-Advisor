@@ -1,8 +1,6 @@
 """
-user.py: user accounts and login sessions.
-
-Passwords are hashed with bcrypt, emails are stored in lowercase.
-Login creates a random session token; logout deletes it.
+User and session storage.
+Currently in-memory dicts (USERS, SESSIONS); to be replaced with the database.
 """
 
 import bcrypt

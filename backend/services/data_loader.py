@@ -1,14 +1,13 @@
 """
-process_ranking_data.py: loads the sponsor's data from data/ and cleans it.
-
-Normalizes dataset names, resolves aliases, takes the first metric at
-temperature 0.2, and flips lower-is-better metrics (1 - score).
+Loads benchmark data from data/ (results, skill definitions, dataset-skill mapping, metrics)
+and builds the score table used for ranking. Runs once at import.
 """
+
 import csv
 import json
 from pathlib import Path
 
-DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR = Path(__file__).parent.parent / "data"
 # ----- 1. Data loading and processing ----------------------------------------
 def load_json(name):
     """ Load a JSON file from data/ and return it as Python dicts/lists."""

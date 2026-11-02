@@ -1,8 +1,6 @@
 """
-conversations.py: conversation history.
-
-Each conversation has an owner (the user's email) and a list of messages
-({"role": "user" or "assistant", "content": text}).
+Conversation storage: create conversations, add and read messages, list a user's chats.
+Currently an in-memory dict (CONVERSATIONS); to be replaced with the database.
 """
 
 import uuid

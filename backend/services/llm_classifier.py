@@ -1,17 +1,7 @@
 """
-llm_classifier.py: llm's team skill classifier, copied from the chatbot
-branch (modelavisorchatbot-main/server.py).
-
-Changes from llm's version:
-  - TAXONOMY is built from Faria's dataset-skill mapping (ranking_data.MAPPING)
-    instead of taxonomy.json, so the skill list always matches the ranking data
-  - load_json comes from ranking_data
-  - skill lookup wrapped in build_skill_lookup(); CAP_LOOKUP, canonical_capability
-    and SKILL_TO_CAP removed (the capability comes from SKILL_LOOKUP)
-  - call_llm's retry reuses payload instead of copying it again
-  - extract_json simplified (find/rfind already skip code-block markers)
-  - the get_recommendations calls were removed (ranking_data.py ranks models)
-  - the web-server parts (Handler, run, index.html) were left out (FastAPI does that)
+LLM-based skill classifier.
+Builds the prompt from the skill taxonomy, calls the LLM API, and validates its JSON answer.
+Includes a harmful-request check and a local keyword fallback when no API key is set.
 """
 
 import json
@@ -21,12 +11,12 @@ import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
-from process_ranking_data import load_json, MAPPING
+from services.data_loader import load_json, MAPPING
 
 # ---- 1. settings, skill list and keywords (ours) ------------------------------
 
 # .env (API key) is read from backend/data
-BASE_DIR = Path(__file__).parent / "data"
+BASE_DIR = Path(__file__).parent.parent / "data"
 CONFIG = load_json("config.json") 
 
 def build_taxonomy():
