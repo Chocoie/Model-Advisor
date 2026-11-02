@@ -1,29 +1,29 @@
 # backend ignores
 venv/
-backend/__pycache__/
+__pycache__/
 .env
 
-# frontend ignores (front/ma-app)
+# frontend ignores (frontend/ma-app)
 
 # dependencies
 node_modules/
-front/ma-app/.pnp
-front/ma-app/.pnp.*
-front/ma-app/.yarn/*
-!front/ma-app/.yarn/patches
-!front/ma-app/.yarn/plugins
-!front/ma-app/.yarn/releases
-!front/ma-app/.yarn/versions
+frontend/ma-app/.pnp
+frontend/ma-app/.pnp.*
+frontend/ma-app/.yarn/*
+!frontend/ma-app/.yarn/patches
+!frontend/ma-app/.yarn/plugins
+!frontend/ma-app/.yarn/releases
+!frontend/ma-app/.yarn/versions
 
 # testing
-front/ma-app/coverage/
+frontend/ma-app/coverage/
 
 # next.js
 .next/
-front/ma-app/out/
+frontend/ma-app/out/
 
 # production
-front/ma-app/build/
+frontend/ma-app/build/
 
 # misc
 .DS_Store
@@ -35,11 +35,11 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (matches at any depth, including front/ma-app/.env.local)
+# env files (matches at any depth, including frontend/ma-app/.env.local)
 .env*
 
 # vercel
-front/ma-app/.vercel
+frontend/ma-app/.vercel
 
 # typescript
 *.tsbuildinfo
