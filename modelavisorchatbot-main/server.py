@@ -46,6 +46,9 @@ TAXONOMY = load_json("taxonomy.json")
 BENCHMARK = load_json("benchmark.json")
 KEYWORDS = load_json("keywords.json")
 
+#newly added 
+SKILL_DEFINITIONS = load_json("skill_definitions.json")
+
 
 def norm(s):
     """Normalize a string for case/whitespace-insensitive matching."""
@@ -111,6 +114,16 @@ def build_system_prompt():
     ]
     for cap in TAXONOMY["capabilities"]:
         lines.append("- " + cap["name"] + ": " + ", ".join(cap["skills"]))
+
+    # Prompt V2: Include skill definitions to improve classification
+    if CONFIG.get("use_skill_definitions", False):
+        lines.append("")
+        lines.append("SKILL DEFINITIONS:")
+        for cap in TAXONOMY["capabilities"]:
+            for skill in cap["skills"]:
+                definition = SKILL_DEFINITIONS[skill]["definition"]
+                lines.append(f"- {skill}: {definition}")
+
     lines += [
         "",
         "STRICT RULES:",

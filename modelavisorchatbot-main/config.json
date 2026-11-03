@@ -18,5 +18,6 @@
   "min_weight": 30,
   "max_skills": 8,
   "max_subtasks": 4,
-  "weak_threshold": 0.7
+  "weak_threshold": 0.7,
+  "use_skill_definitions": false
 }
