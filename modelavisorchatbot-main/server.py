@@ -26,6 +26,7 @@ import time
 import webbrowser
 import urllib.error
 import urllib.request
+from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # Resolve asset directory (works both as a script and when frozen by PyInstaller).
@@ -45,6 +46,17 @@ CONFIG = load_json("config.json")
 TAXONOMY = load_json("taxonomy.json")
 BENCHMARK = load_json("benchmark.json")
 KEYWORDS = load_json("keywords.json")
+
+
+def load_optional(name, default):
+    try:
+        return load_json(os.path.join("data", name))
+    except FileNotFoundError:
+        return default
+
+
+SCENARIOS = load_optional("scenarios.json", {"scenarios": []})["scenarios"]
+PRIOR = load_optional("skill_prior.json", {})
 
 
 def norm(s):
@@ -78,6 +90,8 @@ for _cap in TAXONOMY["capabilities"]:
 EXCLUDED_FAMILIES = [norm(f) for f in CONFIG.get("blocked_backend_families", [])]
 MIN_WEIGHT = CONFIG.get("min_weight", 30)
 MAX_SKILLS = CONFIG.get("max_skills", 8)
+LLM_MIN_WEIGHT = CONFIG.get("llm_min_weight", 50)   # the AI classifier is held to fewer, stronger skills
+LLM_MAX_SKILLS = CONFIG.get("llm_max_skills", 5)
 MAX_SUBTASKS = CONFIG.get("max_subtasks", 4)
 WEAK_THRESHOLD = CONFIG.get("weak_threshold", 0.7)
 
@@ -101,7 +115,62 @@ for _m in MODELS:
         BEST[_s] = max(BEST.get(_s, 0), _v or 0)
 
 
-def build_system_prompt():
+_STOP = set("a an and are as at be by for from has have in is it its of on or that the this to "
+            "was were will with an ai agent required should can may also often their they them "
+            "which who into than then these those such more most".split())
+
+
+def _tokens(text):
+    return [w for w in re.findall(r"[a-z]{3,}", text.lower()) if w not in _STOP]
+
+
+_DOC_TOKENS = [Counter(_tokens(sc["text"])) for sc in SCENARIOS]
+_DF = Counter(w for d in _DOC_TOKENS for w in d)
+_IDF = {w: math.log((1 + len(SCENARIOS)) / (1 + n)) + 1 for w, n in _DF.items()}
+
+
+def _vec(counts):
+    v = {w: c * _IDF.get(w, 0) for w, c in counts.items() if w in _IDF}
+    mag = math.sqrt(sum(x * x for x in v.values())) or 1.0
+    return {w: x / mag for w, x in v.items()}
+
+
+_DOC_VECS = [_vec(d) for d in _DOC_TOKENS]
+
+
+def similar_scenarios(text, k=4, exclude=None):
+    """The k scenarios from the human ranking study closest to `text` (tf-idf cosine)."""
+    q = _vec(Counter(_tokens(text)))
+    if not q:
+        return []
+    scored = []
+    for i, dv in enumerate(_DOC_VECS):
+        if exclude is not None and SCENARIOS[i]["text"] == exclude:
+            continue
+        sim = sum(x * dv.get(w, 0) for w, x in q.items())
+        if sim > 0 and SCENARIOS[i]["skills"]:
+            scored.append((sim, i))
+    scored.sort(reverse=True)
+    return [SCENARIOS[i] for _, i in scored[:k]]
+
+
+def examples_block(text, k=4, exclude=None):
+    """Prompt lines showing how people weighted skills for similar tasks."""
+    hits = similar_scenarios(text, k, exclude)
+    if not hits:
+        return []
+    lines = ["", "HOW PEOPLE PICKED SKILLS FOR SIMILAR TASKS (human consensus; weight 100 = everyone",
+             "chose it first). Use as calibration, not as the answer; the user's task comes first:"]
+    for sc in hits:
+        lines.append("- Task: " + sc["text"][:300])
+        lines.append("  Skills: " + ", ".join("%s %d" % (x["skill"], x["weight"]) for x in sc["skills"]))
+    if PRIOR.get("avg_skills"):
+        lines.append("People typically pick about %.0f skills per task, not every skill that is loosely "
+                     "related." % PRIOR["avg_skills"])
+    return lines
+
+
+def build_system_prompt(query=""):
     lines = [
         "You are a strict categorization assistant. Your ONLY job is:",
         "1) Talk briefly with the user to understand what they are evaluating, and",
@@ -122,7 +191,9 @@ def build_system_prompt():
         "- You MUST respond with ONLY a single JSON object. No other text, no markdown.",
         "",
         "FOLLOW-UP QUESTIONS (be as specific as possible about the skills needed):",
-        "- Ask a question only when the answer would change which skills or weights you pick.",
+        "- PREFER ANSWERING. If the user's first message is detailed (about 40+ words) or already",
+        "  makes the skills clear, answer immediately with no question. Ask only when the message",
+        "  is short or vague AND the answer would change which skills you pick.",
         "- Each question must separate two concrete candidates, e.g. \"Does the model need to",
         "  WRITE new code or EXPLAIN/DEBUG existing code?\" Never ask vague questions like",
         "  \"can you tell me more?\".",
@@ -133,7 +204,8 @@ def build_system_prompt():
         "",
         "WEIGHTS:",
         "- Give every skill a need weight from 1 to 100 (100 = central to the task, 30 = minor).",
-        "- Include only skills with weight >= %d, at most %d skills." % (MIN_WEIGHT, MAX_SKILLS),
+        "- Include only skills with weight >= %d, at most %d skills. People typically need only 3-5;" % (LLM_MIN_WEIGHT, LLM_MAX_SKILLS),
+        "  leave out skills that are merely related.",
         "",
         "LARGE PROJECTS:",
         "- If the task has 2 or more distinct parts that need different kinds of skills",
@@ -166,11 +238,16 @@ def build_system_prompt():
         "- Skill names must be EXACT names from the taxonomy, most important first.",
         "- 'confidence' is a number between 0.0 and 1.0.",
     ]
+    lines += examples_block(query)
     return "\n".join(lines)
 
 
 def _load_env_file():
-    path = os.path.join(BASE_DIR, ".env")
+    for folder in (BASE_DIR, os.path.dirname(BASE_DIR)):  # next to server.py, then the repo root
+        _read_env(os.path.join(folder, ".env"))
+
+
+def _read_env(path):
     try:
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
@@ -600,7 +677,7 @@ def classify_local(messages):
                  "(e.g. write code, summarize, plan steps, detect emotion, extract data), "
                  "or click a skill in the sidebar."}
         return q, json.dumps(q), None
-    scored.sort(key=lambda x: (-x[0], x[1]))
+    scored.sort(key=lambda x: (-x[0], -PRIOR.get("skill_share", {}).get(x[1], 0), x[1]))
     top = scored[0][0]
     sw = [{"skill": s, "weight": round(100 * sc / top)} for sc, s in scored]
     sw = normalize_weights(sw)
@@ -631,6 +708,34 @@ def classify_local(messages):
     return finish_answer(ans)
 
 
+NO_QUESTION_NUDGE = "Your message has enough detail. Do not ask a question; respond now with the answer JSON."
+BLEND_MIN_WORDS = 15      # shorter inputs are too thin for neighbour matching to be reliable
+UNSUPPORTED_NEIGHBOUR = 0.7
+
+
+def blend_with_neighbours(sw, text):
+    """Down-weight skills the most similar human-ranked scenarios never chose.
+
+    Only for longer inputs. A skill with weight < 80 and no support among the 8 nearest
+    scenarios is scaled by 0.7; the list is then re-filtered by min_weight. Skills are
+    never added, so the model stays in charge of what the task needs.
+    """
+    if len(text.split()) < BLEND_MIN_WORDS or not sw:
+        return sw
+    chosen = set()
+    for sc in similar_scenarios(text, 8):
+        chosen.update(x["skill"] for x in sc["skills"])
+    if not chosen:
+        return sw
+    out = []
+    for x in sw:
+        w = x["weight"]
+        if x["skill"] not in chosen and w < 80:
+            w = int(round(w * UNSUPPORTED_NEIGHBOUR))
+        out.append({"skill": x["skill"], "weight": w})
+    return normalize_weights(out)
+
+
 def classify(messages):
     """Run the model, enforce the JSON contract, and validate the answer."""
     if use_local_classifier():
@@ -642,11 +747,20 @@ def classify(messages):
                 "Rough keyword match: no API key is set, so the AI classifier was not used. "
                 "Add an Ollama API key for better results.")
         return result, content, err
-    sys_prompt = build_system_prompt()
+    sys_prompt = build_system_prompt(
+        " ".join(m.get("content", "") for m in messages if m.get("role") == "user"))
     full = [{"role": "system", "content": sys_prompt}] + list(messages)
 
+    user_text = " ".join(m.get("content", "") for m in messages if m.get("role") == "user")
+    asked = sum(1 for m in messages if m.get("role") == "assistant" and _msg_type(m) == "question")
     raw = call_llm(full)
     parsed, err = extract_json(raw)
+
+    if parsed and parsed.get("type") == "question" and asked == 0 and len(user_text.split()) >= 40:
+        full.append({"role": "assistant", "content": raw})
+        full.append({"role": "user", "content": NO_QUESTION_NUDGE})
+        raw = call_llm(full)
+        parsed, err = extract_json(raw)
 
     if parsed is None:
         full.append({"role": "assistant", "content": raw})
@@ -665,6 +779,16 @@ def classify(messages):
 
     if ptype == "answer":
         ok, msg = validate_and_normalize_answer(parsed)
+        if ok:
+            strong = [x for x in blend_with_neighbours(parsed["weights"], user_text)
+                      if x["weight"] >= LLM_MIN_WEIGHT] or parsed["weights"][:1]
+            parsed["skills"] = strong[:LLM_MAX_SKILLS]
+            ok, msg = validate_and_normalize_answer(parsed)
+            missing = find_unsupported(norm(user_text))
+            if missing:
+                parsed["unsupported_note"] = (
+                    "Note: we have no benchmark data for %s, so this recommendation covers only "
+                    "the parts of your task we can measure." % ", ".join(missing))
         if not ok:
             full.append({"role": "assistant", "content": raw})
             full.append({"role": "user", "content": msg})

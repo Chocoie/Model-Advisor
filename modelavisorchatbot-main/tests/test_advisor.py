@@ -13,6 +13,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import server  # noqa: E402
 
 
+_no_key = mock.patch.object(server, "get_api_key", return_value="")
+
+
+def setUpModule():
+    _no_key.start()  # tests must never call the real API, even if a .env key exists
+
+
+def tearDownModule():
+    _no_key.stop()
+
+
 def say(*texts):
     return [{"role": "user", "content": t} for t in texts]
 
@@ -334,6 +345,24 @@ class ClassifierModeTests(unittest.TestCase):
                     mock.patch.object(server, "call_llm", return_value=reply):
                 r, _, _ = server.classify(say("translate"))
             self.assertEqual(r, {"type": "question", "text": "what language?"})
+
+
+class ScenarioDataTests(unittest.TestCase):
+    def test_similar_scenarios_found_and_self_excluded(self):
+        sc = server.SCENARIOS[0]
+        hits = server.similar_scenarios(sc["text"], 3, exclude=sc["text"])
+        self.assertTrue(hits)
+        self.assertNotIn(sc["text"], [h["text"] for h in hits])
+
+    def test_scenario_skills_are_all_in_taxonomy(self):
+        for sc in server.SCENARIOS:
+            for x in sc["skills"]:
+                self.assertIn(x["skill"], server.SKILL_TO_CAP)
+
+    def test_prompt_includes_examples_only_when_a_query_is_given(self):
+        q = server.SCENARIOS[0]["text"]
+        self.assertIn("SIMILAR TASKS", server.build_system_prompt(q))
+        self.assertNotIn("SIMILAR TASKS", server.build_system_prompt())
 
 
 if __name__ == "__main__":

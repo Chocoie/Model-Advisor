@@ -9,6 +9,7 @@ pyinstaller --onefile --windowed --name ModelAdvisor ^
   --add-data "benchmark.json;." ^
   --add-data "keywords.json;." ^
   --add-data "config.json;." ^
+  --add-data "data;data" ^
   launcher.py
 
 echo.
