@@ -1,0 +1,106 @@
+
+{
+    "Deductive Reasoning": {
+      "definition": "Ability to derive logically certain conclusions from given premises using formal logical rules."
+    },
+    "Causal Reasoning": {
+      "definition": "Ability to infer cause-effect relationships and understand why events occur."
+    },
+    "Temporal Reasoning": {
+      "definition": "Ability to understand sequence, duration, and ordering of events over time."
+    },
+    "Compositionality": {
+      "definition": "Ability to combine smaller pieces of information into a coherent larger meaning."
+    },
+    "Quantitative Reasoning": {
+      "definition": "Ability to perform numerical calculations, estimation, and mathematical interpretation."
+    },
+    "Analogical Reasoning": {
+      "definition": "Ability to identify structural similarities and relational mappings between two different concepts or domains."
+    },
+    "Moral / Ethical Reasoning": {
+      "definition": "Ability to analyze moral dilemmas, evaluate competing ethical principles, and reason about the ethical implications of decisions."
+    },
+    "Summarization": {
+      "definition": "Ability to condense information while preserving key meaning and important details."
+    },
+    "Information Synthesis": {
+      "definition": "Ability to integrate multiple sources into a coherent and unified narrative."
+    },
+    "Event Extrapolation": {
+      "definition": "Ability to predict future events while remaining consistent with the narrative world."
+    },
+    "Argument Mining": {
+      "definition": "Ability to identify argumentative structure such as claims, evidence, and conclusions."
+    },
+    "Emotion Inference": {
+      "definition": "Ability to recognize emotional states from text and context."
+    },
+    "Cultural Understanding": {
+      "definition": "Ability to interpret and respond appropriately based on cultural or social context."
+    },
+    "Mind Reading": {
+      "definition": "Ability to infer beliefs, intentions, and mental state of another actor (Theory of Mind)."
+    },
+    "Factual Content Generation": {
+      "definition": "Ability to produce factually correct and grounded responses."
+    },
+    "False Assertion Resistance": {
+      "definition": "Ability to resist accepting false premises introduced by the user."
+    },
+    "Availability Bias Mitigation": {
+      "definition": "Ability to base judgments on actual likelihood rather than salience or recall."
+    },
+    "Confirmation Bias Mitigation": {
+      "definition": "Ability to consider supporting and opposing evidence equally."
+    },
+    "Racial Bias Mitigation": {
+      "definition": "Ability to avoid racial stereotypes and maintain fairness."
+    },
+    "Religious Bias Mitigation": {
+      "definition": "Ability to respond fairly across religious beliefs and viewpoints."
+    },
+    "Political Bias Mitigation": {
+      "definition": "Ability to provide neutral and balanced responses across political viewpoints."
+    },
+    "Harmless Content Generation": {
+      "definition": "Ability to generate safe, non-harmful, and policy-aligned responses."
+    },
+    "Framing Bias Mitigation": {
+      "definition": "Ability to remain logically consistent across differently phrased prompts."
+    },
+    "Attribution Bias Mitigation": {
+      "definition": "Ability to balance dispositional vs situational explanations for behavior."
+    },
+    "Format Adherence": {
+      "definition": "Ability to generate outputs in required structured formats or schemas."
+    },
+    "Intent Classification": {
+      "definition": "Ability to correctly infer the user’s goal or request."
+    },
+    "Entity Identification": {
+      "definition": "Ability to identify important people, objects, places, or concepts in input."
+    },
+    "Code Generation": {
+      "definition": "Ability to generate syntactically correct and functional code."
+    },
+    "Outcome Prediction": {
+      "definition": "Ability to estimate likely future outcomes from current inputs."
+    },
+    "Task Decomposition": {
+      "definition": "Ability to break complex goals into manageable subtasks."
+    },
+    "Sequential Planning": {
+      "definition": "Ability to generate ordered action sequences to achieve a goal."
+    },
+    "Constraint Satisfaction": {
+      "definition": "Ability to generate solutions that satisfy explicit constraints."
+    },
+    "Data Interpretation": {
+      "definition": "Ability to extract actionable meaning from structured or unstructured data."
+    },
+    "Pattern Recognition": {
+      "definition": "Ability to identify recurring structures, trends, or regularities."
+    }
+  }
+    

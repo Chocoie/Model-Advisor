@@ -16,7 +16,8 @@ import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
-from services.data_loader import load_json, MAPPING
+from services.data_loader import load_json, MAPPING, SKILLS
+from services import scenarios
 
 # ---- 1. settings, skill list and keywords --------------------------------------
 
@@ -44,10 +45,20 @@ for _cap in TAXONOMY["capabilities"]:
     for _skill in _cap["skills"]:
         SKILL_TO_CAP[_skill] = _cap["name"]
 
+# skill -> one-line definition, from data/skill_definitions.csv (used when
+# "use_skill_definitions" is true in config.json)
+# data/skill_definitions.json (from the skill-definitions branch) fills skills the CSV lacks.
+SKILL_DEFINITIONS = {k: v["definition"] for k, v in load_json("skill_definitions.json").items()}
+SKILL_DEFINITIONS.update({row["Skill / Certificate"].strip(): row["Definition"].strip()
+                          for row in SKILLS if row.get("Definition")})
+
 # Limits for the classifier answer (can be set in config.json)
 MIN_WEIGHT = CONFIG.get("min_weight", 30)      # drop skills weighted under this
 MAX_SKILLS = CONFIG.get("max_skills", 8)       # at most this many skills per answer
 MAX_SUBTASKS = CONFIG.get("max_subtasks", 4)   # at most this many project parts
+# The LLM classifier is held to fewer, stronger skills (people typically pick 3-5)
+LLM_MIN_WEIGHT = CONFIG.get("llm_min_weight", 50)
+LLM_MAX_SKILLS = CONFIG.get("llm_max_skills", 5)
 
 # ---- 2. skill name lookups (checks the LLM's skill names are real) ------------
 
@@ -203,7 +214,7 @@ def _headers():
 
 # ---- 5. the LLM: instructions, call, and checking its reply -------------------
 
-def build_system_prompt():
+def build_system_prompt(query="", exclude=None):
     """
     Build the instructions sent to the LLM before the conversation:
     its role, the skills grouped by capability (from TAXONOMY), the rules for
@@ -219,6 +230,9 @@ def build_system_prompt():
     ]
     for cap in TAXONOMY["capabilities"]:
         lines.append("- " + cap["name"] + ": " + ", ".join(cap["skills"]))
+    if CONFIG.get("use_skill_definitions", False):
+        lines += ["", "SKILL DEFINITIONS (what each skill means):"]
+        lines += ["- %s: %s" % (s, SKILL_DEFINITIONS[s]) for s in SKILL_TO_CAP if s in SKILL_DEFINITIONS]
     lines += [
         "",
         "STRICT RULES:",
@@ -230,7 +244,9 @@ def build_system_prompt():
         "- You MUST respond with ONLY a single JSON object. No other text, no markdown.",
         "",
         "FOLLOW-UP QUESTIONS (be as specific as possible about the skills needed):",
-        "- Ask a question only when the answer would change which skills or weights you pick.",
+        "- PREFER ANSWERING. If the user's first message is detailed (about 40+ words) or already",
+        "  makes the skills clear, answer immediately with no question. Ask only when the message",
+        "  is short or vague AND the answer would change which skills you pick.",
         "- Each question must separate two concrete candidates, e.g. \"Does the model need to",
         "  WRITE new code or EXPLAIN/DEBUG existing code?\" Never ask vague questions like",
         "  \"can you tell me more?\".",
@@ -241,7 +257,8 @@ def build_system_prompt():
         "",
         "WEIGHTS:",
         "- Give every skill a need weight from 1 to 100 (100 = central to the task, 30 = minor).",
-        "- Include only skills with weight >= %d, at most %d skills." % (MIN_WEIGHT, MAX_SKILLS),
+        "- Include only skills with weight >= %d, at most %d skills. People typically need only 3-5;" % (LLM_MIN_WEIGHT, LLM_MAX_SKILLS),
+        "  leave out skills that are merely related.",
         "",
         "LARGE PROJECTS:",
         "- If the task has 2 or more distinct parts that need different kinds of skills",
@@ -274,7 +291,15 @@ def build_system_prompt():
         "- Skill names must be EXACT names from the taxonomy, most important first.",
         "- 'confidence' is a number between 0.0 and 1.0.",
     ]
+    lines += scenarios.examples_block(query, exclude=exclude)
     return "\n".join(lines)
+
+def is_blocked_backend(name):
+    """True if a model belongs to a family barred from running the chatbot itself
+    ("blocked_backend_families" in config.json). Recommendations are not affected."""
+    n = norm(name)
+    return any(re.search(r"(?<![a-z0-9])" + re.escape(norm(f)), n)
+               for f in CONFIG.get("blocked_backend_families", []))
 
 def call_llm(messages):
     """
@@ -282,6 +307,9 @@ def call_llm(messages):
     First asks for a JSON-only reply; if the server rejects that option, retries once without it.
     """
     lm = CONFIG["backend"]
+    if is_blocked_backend(lm.get("model", "")):
+        raise ValueError("Model '%s' is in blocked_backend_families (config.json). It can still be "
+                         "recommended, but not used to run the chatbot." % lm.get("model"))
     url = lm["base_url"].rstrip("/") + "/chat/completions"
     if url.startswith("https") and not get_api_key():
         raise ValueError(
@@ -526,9 +554,35 @@ def classify_local(messages):
     validate_and_normalize_answer(ans)
     return ans, json.dumps(ans), None
 
+NO_QUESTION_NUDGE = "Your message has enough detail. Do not ask a question; respond now with the answer JSON."
+BLEND_MIN_WORDS = 15      # shorter inputs are too thin for neighbour matching to be reliable
+UNSUPPORTED_NEIGHBOUR = 0.7
+
+def blend_with_neighbours(sw, text, exclude=None):
+    """Down-weight skills the most similar human-ranked scenarios never chose.
+
+    Only for longer inputs. A skill with weight < 80 and no support among the 8 nearest
+    scenarios is scaled by 0.7; the list is then re-filtered by min_weight. Skills are
+    never added, so the model stays in charge of what the task needs.
+    """
+    if len(text.split()) < BLEND_MIN_WORDS or not sw:
+        return sw
+    chosen = set()
+    for sc in scenarios.similar_scenarios(text, 8, exclude=exclude):
+        chosen.update(x["skill"] for x in sc["skills"])
+    if not chosen:
+        return sw
+    out = []
+    for x in sw:
+        w = x["weight"]
+        if x["skill"] not in chosen and w < 80:
+            w = int(round(w * UNSUPPORTED_NEIGHBOUR))
+        out.append({"skill": x["skill"], "weight": w})
+    return normalize_weights(out)
+
 # ---- 7. main entry point -------------------------------------------------------
 
-def classify(messages):
+def classify(messages, exclude=None, examples=True):
     """
     Classify the conversation into weighted skills.
 
@@ -550,11 +604,24 @@ def classify(messages):
                 "Rough keyword match: no API key is set, so the AI classifier was not used.")
         return result, content, err
 
-    sys_prompt = build_system_prompt()
+    user_text = " ".join(m.get("content", "") for m in messages if m.get("role") == "user")
+    # exclude / examples are for tools/eval_scenarios.py: keep the scenario under test out of
+    # its own examples and blend, or drop the examples entirely
+    sys_prompt = build_system_prompt(user_text if examples else "", exclude)
     full = [{"role": "system", "content": sys_prompt}] + list(messages)
 
+    # The store saves assistant replies as plain text, so any earlier assistant message
+    # counts as a question already asked.
+    asked = sum(1 for m in messages if m.get("role") == "assistant")
     raw = call_llm(full)
     parsed, err = extract_json(raw)
+
+    # a long, detailed first message should be answered, not questioned
+    if parsed and parsed.get("type") == "question" and asked == 0 and len(user_text.split()) >= 40:
+        full.append({"role": "assistant", "content": raw})
+        full.append({"role": "user", "content": NO_QUESTION_NUDGE})
+        raw = call_llm(full)
+        parsed, err = extract_json(raw)
 
     # one retry if the reply wasn't JSON
     if parsed is None:
@@ -576,6 +643,19 @@ def classify(messages):
 
     if ptype == "answer":
         ok, msg = validate_and_normalize_answer(parsed)
+        if ok:
+            # blend with human-ranked neighbours, then hold the LLM to fewer, stronger skills
+            blended = blend_with_neighbours(parsed["weights"], user_text, exclude) if examples \
+                else parsed["weights"]
+            strong = [x for x in blended
+                      if x["weight"] >= LLM_MIN_WEIGHT] or parsed["weights"][:1]
+            parsed["skills"] = strong[:LLM_MAX_SKILLS]
+            ok, msg = validate_and_normalize_answer(parsed)
+            missing = find_unsupported(norm(user_text))
+            if missing:
+                parsed["unsupported_note"] = (
+                    "Note: we have no benchmark data for %s, so this recommendation covers only "
+                    "the parts of your task we can measure." % ", ".join(missing))
         if not ok:
             # one retry if the skill names weren't in the taxonomy
             full.append({"role": "assistant", "content": raw})
