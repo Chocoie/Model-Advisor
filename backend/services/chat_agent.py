@@ -98,6 +98,8 @@ def explain_results(weights, results):
         validate_and_normalize_answer(ans)
     recommend(ans)
     reply = plain_list(ans) + "\n\n" + ans["explanation"]
+    if ans.get("refine_question"):   # answer-first: the classifier's question, as an optional next step
+        reply += "\n\nTo fine-tune this: " + ans["refine_question"]
     _CONTEXT[reply] = context_from(ans)
     return reply
 

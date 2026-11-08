@@ -36,5 +36,6 @@
     "skywork",
     "sensenova"
   ],
-  "use_skill_definitions": true
+  "use_skill_definitions": true,
+  "answer_first_min_words": 4
 }

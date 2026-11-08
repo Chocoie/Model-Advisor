@@ -55,7 +55,7 @@ def predict(mode, text, no_questions=False, examples=True):
 
 
 def score_one(a, sc):
-    gold = {x["skill"] for x in sc["skills"]}
+    gold = {x if isinstance(x, str) else x["skill"] for x in sc["skills"]}
     t0 = time.time()
     asked_first = False
     try:
@@ -65,7 +65,7 @@ def score_one(a, sc):
             pred = predict(a.mode, sc["text"], no_questions=True, examples=not a.no_examples)
     except Exception as e:  # API errors, timeouts, bad JSON after retries
         return {"error": repr(e)[:200], "secs": time.time() - t0}
-    out = {"secs": time.time() - t0, "asked_first": asked_first}
+    out = {"secs": time.time() - t0, "asked_first": asked_first, "text": sc["text"], "pred": pred, "gold": sorted(gold)}
     if pred is None:
         out["asked"] = True
         return out
@@ -89,23 +89,35 @@ def main():
                     help="if the classifier asks a question, re-ask with 'answer now' and score that")
     ap.add_argument("--workers", type=int, default=4, help="parallel API calls (llm mode)")
     ap.add_argument("--out", help="append a JSON line with settings and scores to this file")
+    ap.add_argument("--file", help="score this JSON file ({scenarios: [{text, skills: [names]}]}) "
+                                   "instead of the human-ranked scenarios, e.g. data/short_prompts.json")
+    ap.add_argument("--show", action="store_true", help="print each prompt with predicted vs expected skills")
     a = ap.parse_args()
 
     if a.model:
         lc.CONFIG["backend"]["model"] = a.model
     lc.CONFIG["use_skill_definitions"] = a.defs
 
-    rows = [sc for sc in scenarios.SCENARIOS if sc["skills"]]
+    if a.file:
+        with open(a.file, encoding="utf-8") as f:
+            rows = json.load(f)["scenarios"]
+    else:
+        rows = [sc for sc in scenarios.SCENARIOS if sc["skills"]]
     random.Random(a.seed).shuffle(rows)
     rows = rows[:a.n]
     workers = a.workers if a.mode == "llm" else 1
     with ThreadPoolExecutor(workers) as ex:
         results = list(ex.map(lambda sc: score_one(a, sc), rows))
 
+    if a.show:
+        for r in results:
+            mark = "ASKED" if r.get("asked") else ("ok " if r.get("top1") else "MISS") if "p" in r else "ERR"
+            print("%-5s %s" % (mark, r.get("text", "")))
+            print("      got:  %s\n      want: %s" % (r.get("pred"), r.get("gold")))
     scored = [r for r in results if "p" in r]
     n = len(scored)
     summary = {
-        "mode": a.mode,
+        "mode": a.mode, "file": a.file,
         "model": lc.CONFIG["backend"]["model"] if a.mode == "llm" else None,
         "defs": a.defs, "examples": not a.no_examples, "force": a.force,
         "seed": a.seed, "n": len(rows), "scored": n,

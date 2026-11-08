@@ -161,6 +161,18 @@ class ClassifierTests(unittest.TestCase):
         self.assertEqual(ans["type"], "answer")
         self.assertEqual(m.call_count, 2)
 
+    def test_short_startup_prompt_is_answered_with_a_refine_tip(self):
+        q = {"type": "question", "text": "Write new code or debug existing code?"}
+        answer = {"type": "answer", "skills": [{"skill": "Code Generation", "weight": 100}]}
+        with with_key(), llm_replies(q, answer):
+            ans, _, _ = lc.classify(say("bot that writes Python code"))
+        self.assertEqual(ans["skills"], ["Code Generation"])
+        self.assertEqual(ans["refine_question"], q["text"])
+        with with_key(), llm_replies(q, answer):
+            action = chat_agent.next_action(say("bot that writes Python code"))
+        reply = chat_agent.explain_results(action["weights"], [])
+        self.assertIn("To fine-tune this: Write new code or debug existing code?", reply)
+
     def test_short_message_question_is_kept(self):
         with with_key(), llm_replies({"type": "question", "text": "Write or debug code?"}):
             ans, _, _ = lc.classify(say("help with code"))

@@ -48,6 +48,29 @@ precision 0.57, recall 0.58, Jaccard 0.41.
 - nemotron-3-ultra has slightly higher recall but lower precision and takes 17-20 s per answer.
 - gpt-oss:120b had the best top-1 on round 1 but dropped to 0.72-0.74 on the fresh sample.
 
+## Short startup-style prompts (`data/short_prompts.json`)
+Real users type one line ("predict which users will churn"), not a paragraph. 30 short startup
+requests, hand-labeled with only their 1-3 must-have skills (so precision is not meaningful here).
+gemma4:31b, definitions on.
+
+| Setup | Asked a question first | Top-1 | Must-haves found (recall) |
+|---|---|---|---|
+| Retrieval only (no LLM) | - | 0.27 | 0.55 |
+| Bot before answer-first | 25 of 30 | 1.00 (5 answered) | 1.00 |
+| Same, forced to answer | - | 0.93 | 1.00 |
+| Same, forced, no scenario examples | - | 0.93 | 0.98 |
+| **Bot with answer-first** | **0 of 30** | **0.90** | **0.98** |
+
+The bot asked a clarifying question on most short prompts even though its forced answer was
+right ~93% of the time. Now, on the first message (4+ words), it answers with its best guess and
+adds its question as "To fine-tune this: ..." (`answer_first_min_words` in `config.json`).
+Paragraph scenarios are unchanged (seed 1, n=100: top-1 0.79, precision 0.59, recall 0.68,
+Jaccard 0.46). Scenario examples neither help nor hurt short prompts.
+
+```
+python tools/eval_scenarios.py --mode llm --file data/short_prompts.json --n 30 --defs --show
+```
+
 ## Caveats
 - 60-100 scenarios per run; differences under ~0.03 are within noise.
 - Human annotators chose from GPT-4.1-mini's top-10 skills, so gold labels lean toward that model.

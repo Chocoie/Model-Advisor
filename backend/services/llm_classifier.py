@@ -616,8 +616,14 @@ def classify(messages, exclude=None, examples=True):
     raw = call_llm(full)
     parsed, err = extract_json(raw)
 
-    # a long, detailed first message should be answered, not questioned
-    if parsed and parsed.get("type") == "question" and asked == 0 and len(user_text.split()) >= 40:
+    # Answer first: on the first message, give a best-guess recommendation instead of a question
+    # (short startup-style prompts got a question ~80% of the time, yet the forced answer had the
+    # right main skill 93% of the time). The question is kept as an optional refinement tip.
+    # Only very short/vague messages (under answer_first_min_words) still get a question first.
+    refine = None
+    if (parsed and parsed.get("type") == "question" and asked == 0
+            and len(user_text.split()) >= CONFIG.get("answer_first_min_words", 4)):
+        refine = str(parsed.get("text", "")).strip() or None
         full.append({"role": "assistant", "content": raw})
         full.append({"role": "user", "content": NO_QUESTION_NUDGE})
         raw = call_llm(full)
@@ -656,6 +662,8 @@ def classify(messages, exclude=None, examples=True):
                 parsed["unsupported_note"] = (
                     "Note: we have no benchmark data for %s, so this recommendation covers only "
                     "the parts of your task we can measure." % ", ".join(missing))
+            if refine:
+                parsed["refine_question"] = refine
         if not ok:
             # one retry if the skill names weren't in the taxonomy
             full.append({"role": "assistant", "content": raw})
