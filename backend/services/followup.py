@@ -52,16 +52,19 @@ def rank_skills(weights, top_n=3, lam=0.0):
     """Like ranking.rank_skills, plus "score" (fit scaled up for small models by lam),
     "size_b" and "relative" (each skill as % of the best model). Sorted by score."""
     best = {w["skill"]: _best(w["skill"]) for w in weights}
-    total = sum(w["weight"] for w in weights)
+    # skills no model has a score for can't separate models: leave them out (see no_data_skills)
+    measured = [w for w in weights if best[w["skill"]]]
+    total = sum(w["weight"] for w in measured)
     out = []
     for m in SCORES:
         raw = {w["skill"]: skill_score(m, w["skill"]) for w in weights}
-        fit = sum(w["weight"] * raw[w["skill"]] / best[w["skill"]] for w in weights if best[w["skill"]]) / total
+        fit = sum(w["weight"] * raw[w["skill"]] / best[w["skill"]] for w in measured) / total if total else 0.0
         # scaling (not adding) means a weak small model never wins just because it is cheap
         score = fit * (1 - lam + lam * efficiency(m))
         out.append({"model": m, "fit": round(100 * fit, 1), "score": round(100 * score, 1),
                     "size_b": model_size_b(m), "scores": {s: round(v, 3) for s, v in raw.items()},
-                    "relative": {s: round(100 * v / best[s], 1) if best[s] else 0 for s, v in raw.items()}})
+                    "relative": {w["skill"]: round(100 * raw[w["skill"]] / best[w["skill"]], 1)
+                                 for w in measured}})
     out.sort(key=lambda r: -r["score"])
     return out[:top_n]
 
@@ -121,6 +124,10 @@ def build_explanation(ans):
                      "recommend splitting it: " + assign + ".")
     elif plan:
         parts.append("The parts of this project are close enough that one model covers them all.")
+    no_data = [x["skill"] for x in sw if not _best(x["skill"])]
+    if no_data:
+        parts.append("No model has benchmark results for %s yet, so %s not counted in the match."
+                     % (", ".join(no_data), "it is" if len(no_data) == 1 else "they are"))
     if ans.get("unsupported_note"):
         parts.append(ans["unsupported_note"])
     parts.append("Models are scored from published benchmark results for these skills, "

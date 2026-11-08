@@ -80,6 +80,16 @@ class RankingTests(unittest.TestCase):
         self.assertEqual(followup.efficiency_weight({"cost": "unspecified"}), 0)
         self.assertEqual(followup.efficiency_weight({"cost": "high", "latency": "high"}), 0.5)
 
+    def test_skills_without_data_are_left_out_and_named(self):
+        w = [{"skill": "Summarization", "weight": 100}, {"skill": "Pattern Recognition", "weight": 80}]
+        top = followup.rank_skills(w, 1)[0]
+        self.assertEqual(list(top["relative"]), ["Summarization"])
+        self.assertEqual(top["fit"], 100.0)
+        ans = {"type": "answer", "skills": w}
+        lc.validate_and_normalize_answer(ans)
+        self.assertIn("No model has benchmark results for Pattern Recognition", followup.recommend(ans)["explanation"])
+        self.assertEqual(followup.rank_skills([{"skill": "Pattern Recognition", "weight": 100}], 1)[0]["fit"], 0.0)
+
     def test_single_part_has_no_plan(self):
         self.assertIsNone(followup.build_plan([{"name": "a", "skills": [{"skill": "Summarization", "weight": 100}]}],
                                              [{"skill": "Summarization", "weight": 100}]))
@@ -250,6 +260,8 @@ class ApiTests(unittest.TestCase):
         r2 = self.client.post(url, headers=self.headers, json={"message": "what if cost matters more?"}).json()
         self.assertIn("With cost prioritized", r2["reply"])
 
+        self.client.post(url, headers=self.headers, json={"message": "why is gemma-2-2b ranked lower?"})
+        # still a follow-up after another follow-up answer
         r3 = self.client.post(url, headers=self.headers, json={"message": "give me a prompt"}).json()
         self.assertIn("starting prompt", r3["reply"])
         self.assertEqual(r3["results"], [])

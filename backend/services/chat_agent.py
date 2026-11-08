@@ -27,8 +27,9 @@ def next_action(history):
     {"type": "ready", "skills", "weights"}.
     """
     users = [m for m in history if m.get("role") == "user"]
-    last_reply = next((m["content"] for m in reversed(history) if m.get("role") == "assistant"), None)
-    ctx = _CONTEXT.get(last_reply)
+    # the latest recommendation in this conversation (follow-up answers in between don't reset it)
+    ctx = next((_CONTEXT[m["content"]] for m in reversed(history)
+                if m.get("role") == "assistant" and m["content"] in _CONTEXT), None)
     if ctx and users:
         out = followup(users[-1]["content"], ctx)
         if out and not out["answer"]:
