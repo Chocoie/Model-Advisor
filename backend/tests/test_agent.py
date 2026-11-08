@@ -240,11 +240,49 @@ class FollowUpTests(unittest.TestCase):
         self.assertIsNone(followup.followup("why?", None))
 
 
+class MemoryTests(unittest.TestCase):
+    def test_context_rebuilt_from_reply_text(self):
+        ans = {"type": "answer", "profile": {"cost": "high"}, "skills": [
+            {"skill": "Moral / Ethical Reasoning", "weight": 100}, {"skill": "Summarization", "weight": 60},
+            {"skill": "Code Generation", "weight": 40}]}
+        lc.validate_and_normalize_answer(ans)
+        reply = chat_agent.explain_results(ans["weights"], [])
+        ctx = chat_agent._context_from_reply(reply)
+        self.assertEqual([(w["skill"], w["weight"]) for w in ctx["weights"]],
+                         [("Moral / Ethical Reasoning", 90), ("Summarization", 65), ("Code Generation", 40)])
+
+    def test_non_recommendation_text_has_no_context(self):
+        self.assertIsNone(chat_agent._context_from_reply("Which matters more: A or B?"))
+
+    def test_latest_recommendation_wins(self):
+        hist = [{"role": "assistant", "content": "Skills detected:\n- Summarization (essential)\nTop Models:"},
+                {"role": "user", "content": "x"},
+                {"role": "assistant", "content": "Skills detected:\n- Code Generation (essential)\nTop Models:"},
+                {"role": "assistant", "content": "Some follow-up answer"}]
+        self.assertEqual(chat_agent.last_context(hist)["weights"][0]["skill"], "Code Generation")
+
+
 class ApiTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(main.app)
         r = self.client.post("/auth/register", json={"email": "t%d@x.com" % id(self), "password": "password123"})
         self.headers = {"Authorization": "Bearer " + r.json()["token"]}
+
+    def _recommend(self, url):
+        r = self.client.post(url, headers=self.headers, json={
+            "message": "summarize long news articles into short key points recap, condense them"}).json()
+        if not r["results"]:  # the keyword classifier may ask one clarifying question first
+            r = self.client.post(url, headers=self.headers, json={"message": "just summarization"}).json()
+        return r
+
+    def test_follow_up_still_works_after_a_restart(self):
+        cid = self.client.post("/conversations", headers=self.headers).json()["conversation_id"]
+        url = "/conversations/%s/message" % cid
+        self.assertTrue(self._recommend(url)["results"])
+        chat_agent._CONTEXT.clear()       # what a server restart does to the in-memory copy
+        r = self.client.post(url, headers=self.headers, json={"message": "what if cost matters more?"}).json()
+        self.assertIn("With cost prioritized", r["reply"])
+        self.assertIn("Summarization", r["skills"])
 
     def test_chat_recommend_then_follow_up(self):
         cid = self.client.post("/conversations", headers=self.headers).json()["conversation_id"]

@@ -10,14 +10,47 @@ from services.llm_classifier import (classify, call_llm, extract_json, classify_
                                      validate_and_normalize_answer)
 from services.followup import followup, recommend, context_from, need_label, display_name
 
-# ponytail: in-memory, keyed by text; lost on restart (a follow-up then gets classified as a new task).
-# Move into the conversation store if the backend team adds a field for it.
+import re
+
+# Memory of the last recommendation, for follow-up questions. The conversation history (saved
+# per user by the backend) is the source of truth: _CONTEXT is an exact in-memory copy, and after
+# a server restart the context is rebuilt from the recommendation reply text itself.
 _CONTEXT = {}   # recommendation reply text -> context for follow-up questions
 _PENDING = {}   # weights key -> full answer from next_action, picked up by explain_results
+
+SKILLS_HEADER = "Skills detected:"
+COST_NOTE = "Cost and speed matter to you"
+LABEL_WEIGHT = {"essential": 90, "important": 65, "minor": 40}   # inverse of need_label
 
 
 def _key(weights):
     return tuple((w["skill"], w["weight"]) for w in weights)
+
+
+def _context_from_reply(text):
+    """Rebuild a follow-up context from a recommendation reply, or None if it isn't one.
+    Recovers skills, need levels and the cost/speed priority (exact weights and the goal
+    profile's text fields are not in the reply)."""
+    if not text.startswith(SKILLS_HEADER):
+        return None
+    block = text.split("Top Models:", 1)[0]
+    weights = [{"skill": s, "weight": LABEL_WEIGHT[label]}
+               for s, label in re.findall(r"^- (.+) \((essential|important|minor)\)$", block, re.M)]
+    if not weights:
+        return None
+    profile = {"cost": "high"} if COST_NOTE in text else {}
+    return {"weights": weights, "subtasks": [], "profile": profile, "summary": ""}
+
+
+def last_context(history):
+    """Context of the latest recommendation in the conversation (follow-up answers in
+    between don't reset it), or None."""
+    for m in reversed(history):
+        if m.get("role") == "assistant":
+            ctx = _CONTEXT.get(m["content"]) or _context_from_reply(m["content"])
+            if ctx:
+                return ctx
+    return None
 
 
 def next_action(history):
@@ -27,9 +60,7 @@ def next_action(history):
     {"type": "ready", "skills", "weights"}.
     """
     users = [m for m in history if m.get("role") == "user"]
-    # the latest recommendation in this conversation (follow-up answers in between don't reset it)
-    ctx = next((_CONTEXT[m["content"]] for m in reversed(history)
-                if m.get("role") == "assistant" and m["content"] in _CONTEXT), None)
+    ctx = last_context(history)
     if ctx and users:
         out = followup(users[-1]["content"], ctx)
         if out and not out["answer"]:
@@ -73,7 +104,7 @@ def explain_results(weights, results):
 
 def plain_list(ans):
     """Format the weighted skills and top models as a plain text list."""
-    lines = ["Skills detected:"]
+    lines = [SKILLS_HEADER]
     for x in ans["weights"]:
         lines.append(f"- {x['skill']} ({need_label(x['weight'])})")
     lines.append("Top Models:")
