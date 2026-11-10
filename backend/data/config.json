@@ -6,7 +6,6 @@
     "temperature": 0.0,
     "timeout_seconds": 300
   },
-  "classifier": "llm",
   "max_questions": 6,
   "max_subtasks": 4,
   "weak_threshold": 0.7,

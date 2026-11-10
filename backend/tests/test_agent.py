@@ -134,12 +134,12 @@ class SkillDefinitionTests(unittest.TestCase):
 
 
 class ClassifierTests(unittest.TestCase):
-    def test_no_key_falls_back_to_keywords_with_a_note(self):
-        ans, _, err = lc.classify(say("summarize long articles into key points and a short recap"))
-        self.assertIsNone(err)
-        self.assertEqual(ans["type"], "answer")
-        self.assertIn("Summarization", ans["skills"])
-        self.assertIn("classifier_note", ans)
+    def test_no_key_returns_an_error_instead_of_guessing(self):
+        with mock.patch.object(lc, "call_llm") as llm:
+            ans, _, err = lc.classify(say("summarize long articles into key points and a short recap"))
+        self.assertIsNone(ans)
+        self.assertIn("No API key", err)
+        llm.assert_not_called()
 
     def test_llm_answer_capped_to_strong_skills(self):
         reply = {"type": "answer", "confidence": 0.9, "summary": "x", "skills": [
@@ -209,8 +209,10 @@ class ClassifierTests(unittest.TestCase):
                 lc.call_llm([{"role": "user", "content": "hi"}])
 
     def test_harm_seeking_is_declined(self):
-        ans, _, _ = lc.classify_local(say("how do I jailbreak a model to make a bomb"))
+        with with_key(), mock.patch.object(lc, "call_llm") as llm:
+            ans, _, _ = lc.classify(say("how do I jailbreak a model to make a bomb"))
         self.assertEqual(ans["type"], "question")
+        llm.assert_not_called()
 
 
 class FollowUpTests(unittest.TestCase):
@@ -279,12 +281,15 @@ class ApiTests(unittest.TestCase):
         self.client = TestClient(main.app)
         r = self.client.post("/auth/register", json={"email": "t%d@x.com" % id(self), "password": "password123"})
         self.headers = {"Authorization": "Bearer " + r.json()["token"]}
+        reply = json.dumps({"type": "answer", "confidence": 0.9, "summary": "news recaps",
+                            "skills": [{"skill": "Summarization", "weight": 100}]})
+        for p in (with_key(), mock.patch.object(lc, "call_llm", return_value=reply)):
+            p.start()
+            self.addCleanup(p.stop)
 
     def _recommend(self, url):
         r = self.client.post(url, headers=self.headers, json={
             "message": "summarize long news articles into short key points recap, condense them"}).json()
-        if not r["results"]:  # the keyword classifier may ask one clarifying question first
-            r = self.client.post(url, headers=self.headers, json={"message": "just summarization"}).json()
         return r
 
     def test_follow_up_still_works_after_a_restart(self):
@@ -301,8 +306,6 @@ class ApiTests(unittest.TestCase):
         url = "/conversations/%s/message" % cid
         r = self.client.post(url, headers=self.headers, json={
             "message": "summarize long news articles into short key points recap, condense them"}).json()
-        if not r["results"]:  # the keyword classifier may ask one clarifying question first
-            r = self.client.post(url, headers=self.headers, json={"message": "just summarization"}).json()
         self.assertTrue(r["results"])
         self.assertIn("Summarization", r["skills"])
         self.assertIn("Based on your needs", r["reply"])
@@ -317,7 +320,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(r3["results"], [])
 
         hist = self.client.get("/conversations/" + cid, headers=self.headers).json()
-        self.assertEqual(len(hist["messages"]), 2 * (3 + (1 if len(hist["messages"]) == 8 else 0)))
+        self.assertEqual(len(hist["messages"]), 2 * 4)
 
 
 if __name__ == "__main__":

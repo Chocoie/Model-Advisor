@@ -2,10 +2,9 @@
 
 Run from backend/:
 
-    python tools/eval_scenarios.py [--mode keyword|retrieval|llm] [--n 60] [--seed 0]
+    python tools/eval_scenarios.py [--mode retrieval|llm] [--n 60] [--seed 0]
                                    [--model gemma4:31b] [--defs] [--no-examples] [--out results.jsonl]
 
-keyword    the offline keyword classifier (no API calls)
 retrieval  nearest-scenario voting only (shows how much the examples alone carry)
 llm        the real chat classifier, with few-shot examples (needs OLLAMA_API_KEY;
            the scenario being tested is excluded from its own examples and the blend)
@@ -45,12 +44,9 @@ def predict(mode, text, no_questions=False, examples=True):
                 votes[x["skill"]] += x["weight"]
         return [s for s, _ in votes.most_common(4)]
     msgs = [{"role": "user", "content": text + (NO_QUESTIONS if no_questions else "")}]
-    if mode == "keyword":
-        ans, _, _ = lc.classify_local(msgs)
-    else:
-        ans, _, err = lc.classify(msgs, exclude=text, examples=examples)
-        if err:
-            raise RuntimeError(err)
+    ans, _, err = lc.classify(msgs, exclude=text, examples=examples)
+    if err:
+        raise RuntimeError(err)
     return ans.get("skills", []) if ans and ans.get("type") == "answer" else None
 
 
@@ -79,7 +75,7 @@ def score_one(a, sc):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", default="keyword", choices=["keyword", "retrieval", "llm"])
+    ap.add_argument("--mode", default="llm", choices=["retrieval", "llm"])
     ap.add_argument("--n", type=int, default=60)
     ap.add_argument("--seed", type=int, default=0, help="shuffle seed; use a new one for a fresh sample")
     ap.add_argument("--model", help="Ollama model to use instead of the one in config.json")

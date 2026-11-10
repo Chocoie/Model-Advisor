@@ -6,7 +6,7 @@ recommendation, ask a question, or detect skills) and turns ranking results into
 Called by routers/conversations.py: next_action(history), then explain_results(weights, results).
 """
 
-from services.llm_classifier import (classify, call_llm, extract_json, classify_local,
+from services.llm_classifier import (classify, call_llm, extract_json,
                                      validate_and_normalize_answer)
 from services.followup import followup, recommend, context_from, need_label, display_name
 
@@ -72,8 +72,11 @@ def next_action(history):
         result, _, error = classify(history)
     except Exception as e:
         print("LLM failed:", repr(e))
-        result, _, error = classify_local(history)
+        return {"type": "question", "question":
+                "Sorry, the AI model is not reachable right now. Please try again in a moment."}
     if error or not result:
+        if error:
+            print("Classifier error:", error)
         return {"type": "question",
                 "question": "Sorry, I did not quite get that. Could you describe what you need the model to do?"}
     if result["type"] == "question":
@@ -112,8 +115,6 @@ def plain_list(ans):
     lines.append("Top Models:")
     for i, r in enumerate(ans["recommendations"], start=1):
         lines.append(f"{i}. {display_name(r['model'])} (match {r['score'] / 10:.1f}/10)")
-    if ans.get("classifier_note"):
-        lines += ["", ans["classifier_note"]]
     return "\n".join(lines)
 
 
