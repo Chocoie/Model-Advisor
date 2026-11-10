@@ -304,12 +304,9 @@ async function loadTaxonomy() {
 async function checkHealth() {
   try {
     const h = await fetchJson("/api/health");
-    if (h.local) {
-      dotEl.className = "dot on";
-      statusEl.textContent = "keyword matching (no AI model)";
-    } else if (h.no_key) {
-      dotEl.className = "dot";
-      statusEl.textContent = "no API key: using keyword matching";
+    if (h.no_key) {
+      dotEl.className = "dot off";
+      statusEl.textContent = "no API key: add one to start";
     } else if (h.lmstudio) {
       dotEl.className = "dot on";
       statusEl.textContent = "model online";
@@ -512,7 +509,6 @@ function renderMessage(m) {
     });
     card.appendChild(el("div", "legend",
       "How much your task relies on each skill: Essential = the core of the task, Important = clearly needed, Minor = a smaller part."));
-    if (r.classifier_note) card.appendChild(el("div", "legend", r.classifier_note));
     if (obj.capability) card.appendChild(el("div", "cap", obj.capability));
     if (obj.summary) card.appendChild(el("div", "summary", obj.summary));
     const conf = (typeof obj.confidence === "number") ? obj.confidence : 0.5;

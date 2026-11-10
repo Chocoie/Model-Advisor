@@ -58,12 +58,12 @@ def main():
     for label, lo, hi in BUCKETS:
         print("\n== size bucket %s ==" % label)
         for scen, text in SCENARIOS.items():
-            # Include a prior question turn so the local classifier answers directly.
-            res, _, _ = server.classify_local([
+            # Include a prior question turn so the classifier answers directly (needs an API key).
+            res, _, _ = server.classify([
                 {"role": "user", "content": text},
                 {"role": "assistant", "content": '{"type": "question", "text": "?"}'},
                 {"role": "user", "content": "yes"}])
-            if res["type"] != "answer":
+            if not res or res["type"] != "answer":
                 print("  %-18s (needs follow-up, skipped)" % scen)
                 continue
             sw = res["weights"]

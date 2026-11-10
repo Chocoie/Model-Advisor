@@ -8,7 +8,6 @@
     "temperature": 0.0,
     "timeout_seconds": 300
   },
-  "classifier": "llm",
   "max_questions": 6,
   "blocked_backend_families": [
     "qwen",

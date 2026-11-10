@@ -25,14 +25,13 @@ The app already speaks the OpenAI-compatible API, so the switch is configuration
   "model": "<an allowed model>",
   "temperature": 0.0,
   "timeout_seconds": 300
-},
-"classifier": "llm"
+}
 ```
 
 - Ollama on the GPU box listens on port 11434. vLLM and LM Studio use the same
   `/v1/chat/completions` shape (vLLM default port 8000, LM Studio 1234).
 - Leave `api_key` empty if the server is private and has no token.
-- `classifier` is `"llm"` by default. `"local"` is the keyword matcher and makes no API calls; the app also falls back to it automatically when no API key is set.
+- The LLM does all categorizing; there is no offline fallback. Without a reachable model (or an API key for an https endpoint) the chat returns an error.
 - The model name must not match `blocked_backend_families` (the server refuses to start if it does). Blocked families (Qwen, DeepSeek, GLM, Kimi and similar) can still be recommended to users; they just cannot run the chatbot or classifier.
   With our own server we choose which models get pulled, so the exclusion is easy to enforce.
 
@@ -60,7 +59,7 @@ The app already speaks the OpenAI-compatible API, so the switch is configuration
 1. Provision the GPU box and install Ollama (or vLLM).
 2. Pull only allowed models; confirm the model name is not on `blocked_backend_families`.
 3. Lock the model port to the app server only.
-4. Update `config.json` `backend` and set `classifier` to `"llm"`.
+4. Update `config.json` `backend`.
 5. Set `MODEL_SERVER_TOKEN` in `.env` if a token is used.
 6. Run `python -m unittest discover tests`, then try a few real prompts through the UI.
 7. Remove the UI "API key" button (or leave it off) if users no longer bring their own key.

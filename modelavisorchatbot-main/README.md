@@ -132,7 +132,6 @@ file. Restart the app after editing.
 `config.json`:
 
 - `port` — local web app port (default `8080`).
-- `classifier` — `"local"` (keyword classifier, no API calls) or the model.
 - `backend.base_url` — model API endpoint.
 - `backend.api_key` — API key. Use `"env:OLLAMA_API_KEY"` to read from the
   environment, a literal string, or `""` for local backends.

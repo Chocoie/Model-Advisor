@@ -1,8 +1,7 @@
 """Score the skill classifier against the human consensus from the scenario study.
 
-    python tools/eval_scenarios.py [--mode keyword|retrieval|llm] [--n 200]
+    python tools/eval_scenarios.py [--mode retrieval|llm] [--n 200]
 
-keyword    the offline keyword classifier (no API calls)
 retrieval  nearest-scenario voting only (shows how much the examples alone carry)
 llm        the real chatbot classifier, with few-shot examples (needs an API key;
            the scenario being tested is excluded from its own examples)
@@ -31,23 +30,20 @@ def predict(mode, text, no_questions=False):
                 votes[x["skill"]] += x["weight"]
         return [s for s, _ in votes.most_common(4)]
     msgs = [{"role": "user", "content": text + (NO_QUESTIONS if no_questions else "")}]
-    if mode == "keyword":
-        ans, _, _ = server.classify_local(msgs)
-    else:
-        orig_ex, orig_sim = server.examples_block, server.similar_scenarios
-        # keep the scenario under test out of both the prompt examples and the neighbour blend
-        server.examples_block = lambda q, k=4, exclude=None: orig_ex(q, k, exclude=text)
-        server.similar_scenarios = lambda q, k=4, exclude=None: orig_sim(q, k, exclude=text)
-        try:
-            ans, _, _ = server.classify(msgs)
-        finally:
-            server.examples_block, server.similar_scenarios = orig_ex, orig_sim
+    orig_ex, orig_sim = server.examples_block, server.similar_scenarios
+    # keep the scenario under test out of both the prompt examples and the neighbour blend
+    server.examples_block = lambda q, k=4, exclude=None: orig_ex(q, k, exclude=text)
+    server.similar_scenarios = lambda q, k=4, exclude=None: orig_sim(q, k, exclude=text)
+    try:
+        ans, _, _ = server.classify(msgs)
+    finally:
+        server.examples_block, server.similar_scenarios = orig_ex, orig_sim
     return ans.get("skills", []) if ans and ans.get("type") == "answer" else None
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", default="keyword", choices=["keyword", "retrieval", "llm"])
+    ap.add_argument("--mode", default="llm", choices=["retrieval", "llm"])
     ap.add_argument("--n", type=int, default=200)
     ap.add_argument("--seed", type=int, default=0, help="shuffle seed; use a new one for a fresh sample")
     ap.add_argument("--no-questions", action="store_true",

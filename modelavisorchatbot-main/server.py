@@ -90,7 +90,7 @@ for _cap in TAXONOMY["capabilities"]:
 EXCLUDED_FAMILIES = [norm(f) for f in CONFIG.get("blocked_backend_families", [])]
 MIN_WEIGHT = CONFIG.get("min_weight", 30)
 MAX_SKILLS = CONFIG.get("max_skills", 8)
-LLM_MIN_WEIGHT = CONFIG.get("llm_min_weight", 50)   # the AI classifier is held to fewer, stronger skills
+LLM_MIN_WEIGHT = CONFIG.get("llm_min_weight", 50)   # the classifier is held to fewer, stronger skills
 LLM_MAX_SKILLS = CONFIG.get("llm_max_skills", 5)
 MAX_SUBTASKS = CONFIG.get("max_subtasks", 4)
 WEAK_THRESHOLD = CONFIG.get("weak_threshold", 0.7)
@@ -555,13 +555,9 @@ def finish_answer(ans):
     ans["plan"] = build_plan(ans.get("subtasks", []), ans["weights"], lam)
     ans["explanation"] = build_explanation(ans)
     extra = ("recommendations", "ranking", "plan", "explanation", "efficiency_weight",
-             "change_note", "classifier_note")
+             "change_note")
     clean = {k: v for k, v in ans.items() if k not in extra}
     return ans, json.dumps(clean), None
-
-
-def use_local_classifier():
-    return CONFIG.get("classifier", "local") == "local"
 
 
 DECLINE_TEXT = (
@@ -605,109 +601,6 @@ def _msg_type(m):
         return None
 
 
-def _examples(skill, n=3):
-    return ", ".join(KEYWORDS.get(skill, [])[:n]) or skill
-
-
-def follow_up_question(sw, hits):
-    """A specific question when the first message leaves the skills ambiguous, else None.
-
-    Three cases: a big multi-capability project (ask for its parts), two close skills
-    from different capabilities (ask which matters more), or a single weak keyword match
-    (ask which sibling skill is meant).
-    """
-    caps = []
-    for x in sw:
-        c = SKILL_TO_CAP[x["skill"]]
-        if c not in caps:
-            caps.append(c)
-    if len(caps) >= 3:
-        return ("This looks like a larger project touching " + ", ".join(caps[:3]) +
-                ". List its main parts (for example: 'backend code', 'customer-facing "
-                "writing', 'planning') so I can match the right model to each part.")
-    if len(sw) >= 2 and sw[1]["weight"] >= 80 and SKILL_TO_CAP[sw[0]["skill"]] != SKILL_TO_CAP[sw[1]["skill"]]:
-        a, b = sw[0]["skill"], sw[1]["skill"]
-        return ("Which matters more for this task: %s (e.g. %s) or %s (e.g. %s)? "
-                "Or are both equally important?" % (a, _examples(a), b, _examples(b)))
-    if len(sw) == 1 and hits <= 1:
-        s = sw[0]["skill"]
-        cap = SKILL_TO_CAP[s]
-        siblings = [k for k in next(c["skills"] for c in TAXONOMY["capabilities"]
-                                    if c["name"] == cap) if k != s][:2]
-        if siblings:
-            return ("I read this as %s. Is that the core of it, or is it closer to %s?"
-                    % (s, " or ".join(siblings)))
-    return None
-
-
-def classify_local(messages):
-    """Match the user's messages to weighted skills with keyword scoring. No API calls.
-
-    Each distinct keyword that appears (at a word start, so "summar" matches
-    "summarize"/"summary") scores 1; a skill's own name scores 3. Skill weights are each
-    score as a percent of the top score; skills under min_weight are dropped. All user
-    messages are scored together so answers to follow-up questions add to the picture.
-    """
-    users = [m.get("content", "") for m in messages if m.get("role") == "user"]
-    text = norm(" ".join(users))
-    latest = norm(users[-1]) if users else ""
-    asked = sum(1 for m in messages if m.get("role") == "assistant" and _msg_type(m) == "question")
-    if is_harm_seeking(latest):
-        q = {"type": "question", "text": DECLINE_TEXT}
-        return q, json.dumps(q), None
-    unsupported = find_unsupported(text)
-    for phrase in unsupported:
-        text = text.replace(phrase, " ")  # don't score skills off out-of-scope phrases
-    scored = []
-    matched = {}
-    for cap in TAXONOMY["capabilities"]:
-        for skill in cap["skills"]:
-            hits = [kw for kw in KEYWORDS.get(skill, [])
-                    if re.search(r"(?<![a-z0-9])" + re.escape(kw), text)]
-            score = len(hits) + (3 if norm(skill) in text else 0)
-            if score:
-                scored.append((score, skill))
-                matched[skill] = hits
-    if not scored:
-        if unsupported:
-            q = {"type": "question", "text": UNSUPPORTED_TEXT % ", ".join(unsupported)}
-        else:
-            q = {"type": "question", "text":
-                 "I couldn't match that to a skill. Describe what the model needs to do "
-                 "(e.g. write code, summarize, plan steps, detect emotion, extract data), "
-                 "or click a skill in the sidebar."}
-        return q, json.dumps(q), None
-    scored.sort(key=lambda x: (-x[0], -PRIOR.get("skill_share", {}).get(x[1], 0), x[1]))
-    top = scored[0][0]
-    sw = [{"skill": s, "weight": round(100 * sc / top)} for sc, s in scored]
-    sw = normalize_weights(sw)
-    if asked == 0:
-        q = follow_up_question(sw, len(matched[sw[0]["skill"]]))
-        if q:
-            q = {"type": "question", "text": q}
-            return q, json.dumps(q), None
-
-    groups = {}
-    for x in sw:
-        groups.setdefault(SKILL_TO_CAP[x["skill"]], []).append(x)
-    ans = {
-        "type": "answer",
-        "skills": sw,
-        "subtasks": ([{"name": c, "skills": g} for c, g in groups.items()]
-                     if len(groups) >= 2 else []),
-        "confidence": round(min(0.95, 0.35 + 0.15 * top), 2),
-        "summary": "Matched on: " + ", ".join(
-            sorted({k for x in sw for k in matched[x["skill"]]}) or [x["skill"] for x in sw]),
-    }
-    if unsupported:
-        ans["unsupported_note"] = (
-            "Note: we have no benchmark data for %s, so this recommendation covers only "
-            "the text-based parts of your task." % ", ".join(unsupported))
-    ans["profile"] = local_profile(users)
-    validate_and_normalize_answer(ans)
-    return finish_answer(ans)
-
-
 NO_QUESTION_NUDGE = "Your message has enough detail. Do not ask a question; respond now with the answer JSON."
 BLEND_MIN_WORDS = 15      # shorter inputs are too thin for neighbour matching to be reliable
 UNSUPPORTED_NEIGHBOUR = 0.7
@@ -738,15 +631,13 @@ def blend_with_neighbours(sw, text):
 
 def classify(messages):
     """Run the model, enforce the JSON contract, and validate the answer."""
-    if use_local_classifier():
-        return classify_local(messages)
     if CONFIG["backend"]["base_url"].startswith("https") and not get_api_key():
-        result, content, err = classify_local(messages)
-        if result and result.get("type") == "answer":
-            result["classifier_note"] = (
-                "Rough keyword match: no API key is set, so the AI classifier was not used. "
-                "Add an Ollama API key for better results.")
-        return result, content, err
+        return None, "", ("No API key is set. Add an Ollama API key (\"API key\" button in "
+                          "the header) so the AI model can categorize your task.")
+    latest = [m.get("content", "") for m in messages if m.get("role") == "user"][-1:]
+    if latest and is_harm_seeking(norm(latest[0])):
+        q = {"type": "question", "text": DECLINE_TEXT}
+        return q, json.dumps(q), None
     sys_prompt = build_system_prompt(
         " ".join(m.get("content", "") for m in messages if m.get("role") == "user"))
     full = [{"role": "system", "content": sys_prompt}] + list(messages)
@@ -800,25 +691,6 @@ def classify(messages):
         return finish_answer(parsed)
 
     return None, raw, "Unknown response type: " + str(ptype)
-
-
-PROFILE_CUES = {
-    "accuracy": r"accura|correct|precise|factual|reliab|exact",
-    "creativity": r"creativ|stor(y|ies)|poem|brainstorm|marketing|novel|imagina",
-    "safety": r"safe|harm|bias|toxic|moderat|children|kids|compliance",
-    "latency": r"\bfast|real[- ]time|latency|quick|instant|responsive",
-    "cost": r"cheap|\bcost|budget|afford|inexpensive|low[- ]price",
-}
-
-
-def local_profile(users):
-    """Best-effort Goal Profile from keywords. Only fills what the text actually states."""
-    text = norm(" ".join(users))
-    profile = {"task": (users[0] if users else "").strip()[:200]}
-    for field, rx in PROFILE_CUES.items():
-        if re.search(rx, text):
-            profile[field] = "high"
-    return profile
 
 
 def recommend_from_payload(body):
@@ -1129,9 +1001,6 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, {"ok": True, "result": result, "content": content})
 
     def _lmstudio_status(self):
-        if use_local_classifier():
-            return {"lmstudio": True, "endpoint": "local", "local": True,
-                    "server_key": False, "using_user_key": False}
         lm = CONFIG["backend"]
         if lm["base_url"].startswith("https") and not get_api_key():
             return {"lmstudio": False, "no_key": True, "endpoint": None,

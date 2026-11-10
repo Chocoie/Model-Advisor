@@ -22,7 +22,7 @@ annotators each, consensus weights mapped onto our 34-skill taxonomy).
 
 | Classifier | Model | Scenarios | Top-1 | Precision | Recall | Jaccard |
 |---|---|---|---|---|---|---|
-| Keyword (offline fallback) | none (regex) | 200 | 0.18 | 0.18 | 0.09 | 0.08 |
+| Keyword (offline fallback, since removed) | none (regex) | 200 | 0.18 | 0.18 | 0.09 | 0.08 |
 | Retrieval only (nearest-scenario vote) | none (tf-idf) | 200 | 0.67 | 0.57 | 0.58 | 0.41 |
 | Retrieval only | none (tf-idf) | 60 | 0.75 | 0.61 | 0.59 | 0.44 |
 | LLM + examples, answered unprompted | gemma4:31b | 19 of 60 | 0.95 | 0.66 | 0.78 | 0.57 |
@@ -39,7 +39,7 @@ The LLM asked a follow-up question on about two-thirds of the scenarios (41 of 6
 1. Prompt now prefers answering; a detailed first message (40+ words) that still gets a
    question is re-asked once with "answer now". Follow-ups dropped from ~40 of 60 to 5-6.
 2. LLM answers keep at most 5 skills with weight >= 50 (`llm_max_skills`, `llm_min_weight`
-   in `config.json`). The keyword fallback keeps 8 / 30.
+   in `config.json`).
 3. Neighbour blend: for inputs of 15+ words, a skill under weight 80 that none of the 8 most
    similar human-ranked scenarios chose is scaled by 0.7. Skills are never added.
 4. Eval script: `--seed` for fresh samples; the tested scenario is excluded from prompt examples
@@ -68,7 +68,6 @@ and 0.45-0.5 Jaccard. The LLM beats retrieval alone on every metric.
 ## Reproduce
 
 ```
-python tools/eval_scenarios.py --mode keyword --n 200
 python tools/eval_scenarios.py --mode retrieval --n 200
 python tools/eval_scenarios.py --mode llm --n 60                  # needs an API key
 python tools/eval_scenarios.py --mode llm --n 60 --no-questions

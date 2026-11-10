@@ -94,44 +94,6 @@ class WeightTests(unittest.TestCase):
             self.assertEqual(server.get_recommendations(emo_heavy)[0]["name"], "B")
 
 
-class FollowUpTests(unittest.TestCase):
-    def test_big_project_asks_for_its_parts(self):
-        r, _, _ = server.classify_local(say(
-            "Build a game with python code, summarize player reports, plan the roadmap "
-            "and detect user emotion"))
-        self.assertEqual(r["type"], "question")
-        self.assertIn("main parts", r["text"])
-
-    def test_answer_after_follow_up_includes_subtasks(self):
-        msgs = say("Build a game with python code, summarize player reports, plan the roadmap "
-                   "and detect user emotion")
-        q, content, _ = server.classify_local(msgs)
-        msgs += [{"role": "assistant", "content": server.json.dumps(q)},
-                 {"role": "user", "content": "backend code, support writing, release planning"}]
-        r, _, _ = server.classify_local(msgs)
-        self.assertEqual(r["type"], "answer")
-        self.assertGreaterEqual(len(r["subtasks"]), 2)
-        self.assertIsNotNone(r["plan"])
-
-    def test_single_weak_match_asks_which_sibling(self):
-        r, _, _ = server.classify_local(say("summarize"))
-        self.assertEqual(r["type"], "question")
-        self.assertIn("Summarization", r["text"])
-
-    def test_clear_request_answers_immediately(self):
-        r, _, _ = server.classify_local(say("write python code to debug a function"))
-        self.assertEqual(r["type"], "answer")
-        self.assertEqual(r["skill"], "Code Generation")
-
-    def test_asks_at_most_once(self):
-        msgs = say("summarize")
-        q, _, _ = server.classify_local(msgs)
-        msgs += [{"role": "assistant", "content": server.json.dumps(q)},
-                 {"role": "user", "content": "yes"}]
-        r, _, _ = server.classify_local(msgs)
-        self.assertEqual(r["type"], "answer")
-
-
 class SplitTests(unittest.TestCase):
     PARTS = [
         {"name": "backend", "skills": [{"skill": "Code Generation", "weight": 90}]},
@@ -169,26 +131,36 @@ class SplitTests(unittest.TestCase):
         self.assertIn("A for backend", ans["explanation"])
 
 
+class llm_says:
+    """Patch in an API key and a fake model reply (a dict, sent as JSON); yields the call_llm mock."""
+
+    def __init__(self, obj):
+        self.patches = [mock.patch.object(server, "get_api_key", return_value="k"),
+                        mock.patch.object(server, "call_llm", return_value=server.json.dumps(obj))]
+
+    def __enter__(self):
+        return [p.start() for p in self.patches][1]
+
+    def __exit__(self, *a):
+        for p in self.patches:
+            p.stop()
+
+
 class UnsupportedTests(unittest.TestCase):
-    def test_unsupported_only_task_says_so(self):
-        r, _, _ = server.classify_local(say("generate an image of a cat"))
-        self.assertEqual(r["type"], "question")
-        self.assertIn("don't have benchmark data", r["text"])
-
-    def test_speech_task_is_unsupported(self):
-        r, _, _ = server.classify_local(say("I need speech recognition for phone calls"))
-        self.assertIn("don't have benchmark data", r["text"])
-
     def test_mixed_task_notes_the_gap(self):
-        r, _, _ = server.classify_local(say("write python code and generate an image for the site"))
+        reply = {"type": "answer", "confidence": 0.8, "summary": "code",
+                 "skills": [{"skill": "Code Generation", "weight": 90}]}
+        with llm_says(reply):
+            r, _, _ = server.classify(say("write python code and generate an image for the site"))
         self.assertEqual(r["type"], "answer")
         self.assertIn("no benchmark data", r["explanation"])
 
-    def test_harm_seeking_is_declined(self):
-        r, _, _ = server.classify_local(say("which model is uncensored with no safety filters"))
+    def test_harm_seeking_is_declined_without_calling_the_model(self):
+        with llm_says({"type": "question", "text": "?"}) as llm:
+            r, _, _ = server.classify(say("which model is uncensored with no safety filters"))
         self.assertEqual(r["type"], "question")
         self.assertIn("can't help", r["text"])
-
+        llm.assert_not_called()
 
 
 def ctx_from(skills, profile=None):
@@ -202,12 +174,6 @@ class ProfileTests(unittest.TestCase):
     def test_profile_levels_default_to_unspecified(self):
         p = server.normalize_profile({"cost": "HIGH", "safety": "bogus", "domain": " law "})
         self.assertEqual((p["cost"], p["safety"], p["domain"]), ("high", "unspecified", "law"))
-
-    def test_local_classifier_picks_up_stated_priorities(self):
-        r, _, _ = server.classify_local(say("a cheap and fast python code helper"))
-        self.assertEqual(r["profile"]["cost"], "high")
-        self.assertEqual(r["profile"]["latency"], "high")
-        self.assertEqual(r["profile"]["safety"], "unspecified")
 
     def test_profile_survives_recompute_from_edits(self):
         ans = ctx_from([{"skill": "Code Generation", "weight": 90}], {"domain": "games"})
@@ -296,8 +262,12 @@ class FollowUpAnswerTests(unittest.TestCase):
 
     def test_respond_falls_through_to_classification(self):
         ctx = ctx_from(self.SKILLS)
-        r, _, _ = server.respond(say("write python code to debug a function"), ctx)
+        reply = {"type": "answer", "confidence": 0.9, "summary": "debug",
+                 "skills": [{"skill": "Code Generation", "weight": 90}]}
+        with llm_says(reply) as llm:
+            r, _, _ = server.respond(say("write python code to debug a function"), ctx)
         self.assertEqual(r["type"], "answer")
+        llm.assert_called()
 
 
 class AmbiguityAndGateTests(unittest.TestCase):
@@ -315,14 +285,12 @@ class AmbiguityAndGateTests(unittest.TestCase):
 
 
 class ClassifierModeTests(unittest.TestCase):
-    def test_llm_is_the_default_classifier(self):
-        self.assertFalse(server.use_local_classifier())
-
-    def test_no_key_falls_back_to_keywords_with_a_note(self):
-        with mock.patch.object(server, "get_api_key", return_value=""):
-            r, _, _ = server.classify(say("write python code to debug a function"))
-        self.assertEqual(r["type"], "answer")
-        self.assertIn("no API key", r["classifier_note"])
+    def test_no_key_returns_an_error_instead_of_guessing(self):
+        with mock.patch.object(server, "get_api_key", return_value=""),                 mock.patch.object(server, "call_llm") as llm:
+            r, _, err = server.classify(say("write python code to debug a function"))
+        self.assertIsNone(r)
+        self.assertIn("No API key", err)
+        llm.assert_not_called()
 
     def test_llm_answer_is_validated_and_gets_recommendations(self):
         reply = server.json.dumps({
