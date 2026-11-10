@@ -1,11 +1,7 @@
-# ModelAdvisor
-To currently run ModelAdvisor locally do the following steps:
-1. follow `backend/README.md` to install the appropriate requirements
-2. run `pip install npm`
-3. `cd backend` and run the `uvicorn main:app --reload` command
-4. in another terminal `cd frontend/ma-app` and run `npm run dev`
+# Model Advisor
 
-Ensure that you create a `.env.local` file and put the follow into it
-`NEXT_PUBLIC_API_URL=http://localhost:8000`
+Tell it what task you need an AI model for, and it recommends the best models for the job.
 
-You should be able to test the POST response stated in the backend README.md
+The app is in [`modelavisorchatbot-main/`](modelavisorchatbot-main/). On Windows, double-click
+`modelavisorchatbot-main/run.bat`; it starts the chatbot and opens it in your browser.
+Setup steps, API key and configuration: [`modelavisorchatbot-main/README.md`](modelavisorchatbot-main/README.md).
