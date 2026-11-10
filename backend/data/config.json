@@ -6,6 +6,35 @@
     "temperature": 0.0,
     "timeout_seconds": 300
   },
-  "classifier": "llm",
-  "max_questions": 6
+  "max_questions": 6,
+  "max_subtasks": 4,
+  "weak_threshold": 0.7,
+  "min_weight": 30,
+  "max_skills": 8,
+  "llm_min_weight": 50,
+  "llm_max_skills": 5,
+  "blocked_backend_families": [
+    "qwen",
+    "qwq",
+    "qvq",
+    "deepseek",
+    "glm",
+    "chatglm",
+    "kimi",
+    "moonshot",
+    "minimax",
+    "yi",
+    "internlm",
+    "baichuan",
+    "ernie",
+    "hunyuan",
+    "doubao",
+    "zhipu",
+    "mimo",
+    "telechat",
+    "skywork",
+    "sensenova"
+  ],
+  "use_skill_definitions": true,
+  "answer_first_min_words": 4
 }
