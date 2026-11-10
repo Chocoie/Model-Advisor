@@ -35,6 +35,7 @@
   }
   header h1 { font-size: 16px; margin: 0; font-weight: 600; }
   header .sub { font-size: 12px; color: var(--muted); }
+  header .version { font-size: 12px; font-weight: 500; color: var(--text); margin-left: 4px; }
   .keybtn { border: 1px solid var(--border); background: var(--panel); color: var(--text); font: inherit; font-size: 12.5px; padding: 5px 10px; border-radius: 6px; cursor: pointer; margin-left: auto; }
   .keybtn.set { border-color: #16a34a; color: #15803d; }
   .keypanel { display: none; background: var(--panel); border-bottom: 1px solid var(--border); padding: 10px 20px; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
@@ -194,8 +195,7 @@
 </head>
 <body>
 <header>
-  <h1>Model Advisor</h1>
-  <span class="sub" id="version"></span>
+  <h1>Model Advisor <span class="version">v{{VERSION}}</span></h1>
   <span class="sub">picks the best model for your task</span>
   <button class="keybtn rankbtn" id="rankBtn" title="See how every model scores">📊 Rankings</button>
   <button class="keybtn" id="keyBtn" style="margin-left:0" title="Use your own Ollama API key">🔑 API key</button>
@@ -310,7 +310,6 @@ async function loadTaxonomy() {
 async function checkHealth() {
   try {
     const h = await fetchJson("/api/health");
-    if (h.version) document.getElementById("version").textContent = "v" + h.version;
     if (h.no_key) {
       dotEl.className = "dot off";
       statusEl.textContent = "no API key: add one to start";

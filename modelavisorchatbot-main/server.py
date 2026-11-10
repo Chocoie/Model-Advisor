@@ -281,10 +281,15 @@ def get_api_key():
 
 
 def get_server_key():
+    """Optional server-side key from config.json backend.api_key (empty by default).
+
+    There is no default key: each user enters their own with the "API key" button.
+    Set api_key only for a private model server that needs a token (see docs/GPU_SERVER.md).
+    """
     key = CONFIG["backend"].get("api_key", "")
     if isinstance(key, str) and key.startswith("env:"):
         return os.environ.get(key[4:], "") or ""
-    return key or os.environ.get("OLLAMA_API_KEY", "") or os.environ.get("OPENAI_API_KEY", "")
+    return key or ""
 
 
 def _headers():
@@ -300,8 +305,7 @@ def call_llm(messages):
     url = lm["base_url"].rstrip("/") + "/chat/completions"
     if url.startswith("https") and not get_api_key():
         raise ValueError(
-            "No API key set. Click \"API key\" in the header to add your own "
-            "Ollama key, or set OLLAMA_API_KEY in .env on the server.")
+            "No API key set. Click \"API key\" in the header and paste your Ollama key.")
     payload = {
         "model": lm.get("model", "local-model"),
         "messages": messages,
@@ -637,8 +641,8 @@ def blend_with_neighbours(sw, text):
 def classify(messages):
     """Run the model, enforce the JSON contract, and validate the answer."""
     if CONFIG["backend"]["base_url"].startswith("https") and not get_api_key():
-        return None, "", ("No API key is set. Add an Ollama API key (\"API key\" button in "
-                          "the header) so the AI model can categorize your task.")
+        return None, "", ("No API key is set. Click \"API key\" in the header and paste your "
+                          "Ollama key so the AI model can categorize your task.")
     latest = [m.get("content", "") for m in messages if m.get("role") == "user"][-1:]
     if latest and is_harm_seeking(norm(latest[0])):
         q = {"type": "question", "text": DECLINE_TEXT}
@@ -948,7 +952,8 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             try:
                 with open(os.path.join(BASE_DIR, "index.html"), "r", encoding="utf-8") as f:
-                    self._send(200, f.read(), "text/html; charset=utf-8")
+                    self._send(200, f.read().replace("{{VERSION}}", __version__),
+                               "text/html; charset=utf-8")
             except FileNotFoundError:
                 self._send(500, "index.html not found")
             return

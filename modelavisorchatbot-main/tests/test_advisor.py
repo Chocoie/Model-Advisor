@@ -343,6 +343,23 @@ class VersionAndKeyErrorTests(unittest.TestCase):
         self.assertIn("credits", msg)
         self.assertNotIn("API key\" button", msg)
 
+    def test_there_is_no_default_key(self):
+        with mock.patch.dict(server.os.environ, {"OLLAMA_API_KEY": "from-env", "OPENAI_API_KEY": "x"}):
+            self.assertEqual(server.get_server_key(), "")
+
+    def test_page_shows_the_version(self):
+        import http.client, threading
+        srv = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            c = http.client.HTTPConnection("127.0.0.1", srv.server_port, timeout=10)
+            c.request("GET", "/")
+            page = c.getresponse().read().decode("utf-8")
+        finally:
+            srv.shutdown()
+        self.assertIn("v" + server.__version__, page)
+        self.assertNotIn("{{VERSION}}", page)
+
     def test_402_on_server_key_offers_own_key(self):
         msg = server.quota_message(402, user_key=False)
         self.assertIn("server's API key", msg)

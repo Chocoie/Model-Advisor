@@ -36,18 +36,17 @@ This app needs a free program called **Python** to run. You must install it
 Your web browser opens with the app. Leave the black window open while you use
 it.
 
-### Step 4 — Add your free key (only if the app asks)
+### Step 4 — Add your Ollama API key
 
-If the app says the free usage has run out:
+The app has no built-in key; everyone uses their own.
 
-1. Click **🔑 API key** at the top of the app page.
-2. Paste your key and click **Save**.
+1. Create an account on Ollama's website and make a key:
+   <https://ollama.com/settings/keys>
+2. Add usage credits to that account (<https://ollama.com/plans>). Ollama
+   charges every cloud request to credits, so a key with no credits gets refused.
+3. Click **🔑 API key** at the top of the app page, paste your key and click **Save**.
 
-You get a free API key by creating an account on Ollama's website:
-<https://ollama.com/settings/keys>
-
-You can do this at any time, after the app is already running. Nothing needs
-to be set up before launch.
+The key stays in your browser. You can add or change it any time while the app is running.
 
 ---
 
@@ -57,7 +56,8 @@ to be set up before launch.
 |---|---|
 | A black window appears and closes straight away (Windows) | Python is not installed, or the "Add python.exe to PATH" box was not ticked. Redo Step 1. |
 | "Python not found" (Mac) | Install Python from the link in Step 1, then try Step 3 again. |
-| The page says the free usage has run out | Add your own free key (Step 4). |
+| "No API key is set" | Add your key (Step 4). |
+| "...account behind it has no usage credits" | Your key works but the account has no credits. Add credits at <https://ollama.com/plans>. |
 | Red dot / "model offline" | Check your internet connection, or add your key (Step 4). |
 | Browser does not open | Open <http://127.0.0.1:8080> yourself. |
 
@@ -88,12 +88,12 @@ launcher  →  starts local server  →  opens browser (http://127.0.0.1:8080)
 
 ## Where your API key goes
 
-- **In the browser (recommended):** the **🔑 API key** button. The key is kept
-  in your browser's local storage and sent to the local server with each
-  request. The server never writes it to disk.
-- **On the server (optional):** put `OLLAMA_API_KEY=your-key` in a file named
-  `.env` next to `server.py`. It is gitignored and used when no browser key is
-  set.
+- **In the browser:** the **🔑 API key** button. The key is kept in your
+  browser's local storage and sent to the local server with each request. The
+  server never writes it to disk.
+- There is no default server key. `OLLAMA_API_KEY` in `.env` is ignored.
+  `backend.api_key` in `config.json` is only for a private model server that
+  needs a token (see `docs/GPU_SERVER.md`).
 
 ## Run from the command line
 
@@ -133,8 +133,9 @@ file. Restart the app after editing.
 
 - `port` — local web app port (default `8080`).
 - `backend.base_url` — model API endpoint.
-- `backend.api_key` — API key. Use `"env:OLLAMA_API_KEY"` to read from the
-  environment, a literal string, or `""` for local backends.
+- `backend.api_key` — empty by default (users enter their own key in the app).
+  Set it only for a private model server that needs a token, e.g.
+  `"env:MODEL_SERVER_TOKEN"` to read it from the environment.
 - `backend.model` — model id.
 - `backend.temperature` — `0.0` keeps classification deterministic.
 
