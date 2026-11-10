@@ -157,17 +157,22 @@
     background: var(--panel);
     padding: 14px 20px;
     display: flex;
+    align-items: flex-end;
     gap: 10px;
   }
-  .composer input {
+  .composer textarea {
     flex: 1;
+    resize: none;
+    max-height: 200px;
+    overflow-y: auto;
+    line-height: 1.4;
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 11px 12px;
     font: inherit;
     font-size: 14.5px;
   }
-  .composer input:focus { outline: none; border-color: var(--accent); }
+  .composer textarea:focus { outline: none; border-color: var(--accent); }
   .composer button {
     border: none;
     background: var(--accent);
@@ -190,6 +195,7 @@
 <body>
 <header>
   <h1>Model Advisor</h1>
+  <span class="sub" id="version"></span>
   <span class="sub">picks the best model for your task</span>
   <button class="keybtn rankbtn" id="rankBtn" title="See how every model scores">📊 Rankings</button>
   <button class="keybtn" id="keyBtn" style="margin-left:0" title="Use your own Ollama API key">🔑 API key</button>
@@ -230,7 +236,7 @@
     </div>
     <div class="composer">
       <button class="reset" id="resetBtn" title="Start over">↺ Reset</button>
-      <input id="input" placeholder="Describe your task or objective…" autocomplete="off">
+      <textarea id="input" rows="1" placeholder="Describe your task or objective… (Shift+Enter for a new line)" autocomplete="off"></textarea>
       <button id="sendBtn">Send</button>
     </div>
   </main>
@@ -290,7 +296,7 @@ async function loadTaxonomy() {
       sp.textContent = s;
       sp.style.cursor = "pointer";
       sp.title = "Add to your task";
-      sp.onclick = () => { inputEl.value = (inputEl.value ? inputEl.value + " " : "") + s; inputEl.focus(); };
+      sp.onclick = () => { inputEl.value = (inputEl.value ? inputEl.value + " " : "") + s; growInput(); inputEl.focus(); };
       skills.appendChild(sp);
     });
     capDiv.appendChild(btn);
@@ -304,6 +310,7 @@ async function loadTaxonomy() {
 async function checkHealth() {
   try {
     const h = await fetchJson("/api/health");
+    if (h.version) document.getElementById("version").textContent = "v" + h.version;
     if (h.no_key) {
       dotEl.className = "dot off";
       statusEl.textContent = "no API key: add one to start";
@@ -614,6 +621,7 @@ async function send() {
   const text = inputEl.value.trim();
   if (!text || busy) return;
   inputEl.value = "";
+  growInput();
   messages.push({ role: "user", content: text });
   render();
   busy = true;
@@ -653,7 +661,14 @@ async function send() {
 }
 
 sendBtn.onclick = send;
-inputEl.addEventListener("keydown", e => { if (e.key === "Enter") send(); });
+function growInput() {
+  inputEl.style.height = "auto";
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 200) + "px";
+}
+inputEl.addEventListener("input", growInput);
+inputEl.addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+});
 resetBtn.onclick = () => { messages = []; render(); };
 
 loadTaxonomy();

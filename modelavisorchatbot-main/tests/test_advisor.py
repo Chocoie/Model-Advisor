@@ -333,5 +333,28 @@ class ScenarioDataTests(unittest.TestCase):
         self.assertNotIn("SIMILAR TASKS", server.build_system_prompt())
 
 
+class VersionAndKeyErrorTests(unittest.TestCase):
+    def test_version_is_semver(self):
+        self.assertRegex(server.__version__, r"^\d+\.\d+\.\d+$")
+
+    def test_402_on_users_own_key_says_so(self):
+        msg = server.quota_message(402, user_key=True)
+        self.assertIn("your API key", msg)
+        self.assertIn("credits", msg)
+        self.assertNotIn("API key\" button", msg)
+
+    def test_402_on_server_key_offers_own_key(self):
+        msg = server.quota_message(402, user_key=False)
+        self.assertIn("server's API key", msg)
+        self.assertIn("API key\" button", msg)
+
+    def test_refused_key_is_not_retried(self):
+        err = server.urllib.error.HTTPError("u", 402, "Payment Required", {}, None)
+        with mock.patch.object(server, "get_api_key", return_value="k"),                 mock.patch.object(server.urllib.request, "urlopen", side_effect=err) as op:
+            with self.assertRaises(server.urllib.error.HTTPError):
+                server.call_llm([{"role": "user", "content": "hi"}])
+        self.assertEqual(op.call_count, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

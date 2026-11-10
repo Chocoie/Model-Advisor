@@ -16,6 +16,8 @@ Run:
     python server.py --open     # start server and open the browser
 """
 
+__version__ = "0.0.1"   # bump on every release; see CHANGELOG.md
+
 import json
 import math
 import os
@@ -317,7 +319,10 @@ def call_llm(messages):
         with urllib.request.urlopen(req, timeout=timeout) as r:
             resp = json.loads(r.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
-        # Some engines reject response_format; retry without it.
+        # Some engines reject response_format (400/422); retry without it.
+        # Anything else (402 no credits, 401 bad key, 429 rate limit) goes straight to the caller.
+        if e.code not in (400, 422):
+            raise
         body = dict(payload)
         req = urllib.request.Request(
             url, data=json.dumps(body).encode("utf-8"), headers=_headers(),
@@ -892,8 +897,26 @@ def respond(messages, context=None):
     return classify(messages)
 
 
+def quota_message(code, user_key, detail=""):
+    """Plain-words error for an API key Ollama refused, naming whose key it was."""
+    whose = "your API key" if user_key else "the server's API key"
+    if code == 401:
+        why = "Ollama does not recognise %s. Check that it was copied in full." % whose
+    elif code == 402:
+        why = ("Ollama accepted %s, but the Ollama account behind it has no usage credits "
+               "(Ollama now charges every cloud request to credits). Add credits at "
+               "https://ollama.com/plans, or use a key from an account that has them." % whose)
+    elif code == 429:
+        why = "Too many requests on %s right now. Wait a minute and try again." % whose
+    else:
+        why = "Ollama refused %s (HTTP %d)." % (whose, code)
+    if not user_key:
+        why += " You can also enter your own key with the \"API key\" button in the header."
+    return why
+
+
 class Handler(BaseHTTPRequestHandler):
-    server_version = "ModelAdvisor/1.0"
+    server_version = "ModelAdvisor/" + __version__
 
     def _send(self, code, body, ctype="application/json; charset=utf-8"):
         if isinstance(body, (dict, list)):
@@ -942,12 +965,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/config":
             lm = CONFIG["backend"]
             self._send(200, {
+                "version": __version__,
                 "model": lm.get("model", "local-model"),
                 "temperature": lm.get("temperature", 0.0),
             })
             return
         if path == "/api/health":
-            self._send(200, self._lmstudio_status())
+            self._send(200, dict(self._lmstudio_status(), version=__version__))
             return
         self._send(404, {"error": "not found"})
 
@@ -977,11 +1001,9 @@ class Handler(BaseHTTPRequestHandler):
                 detail = e.read().decode("utf-8")
             except Exception:
                 pass
-            if e.code in (402, 403, 429):
-                self._send(429, {"quota": True, "error":
-                    "The shared free usage has run out. Please enter your own Ollama API key "
-                    "using the \"API key\" button in the header. "
-                    "Note: you get a free API key by creating an Ollama account on their website."})
+            if e.code in (401, 402, 403, 429):
+                self._send(429, {"quota": True, "error": quota_message(
+                    e.code, bool(getattr(_request, "key", "")), detail)})
                 return
             self._send(502, {"error": "Model API error (%d): %s" % (e.code, detail[:500])})
             return
@@ -1029,7 +1051,7 @@ def run(open_browser=False):
     port = CONFIG["port"]
     httpd = ThreadingHTTPServer((host, port), Handler)
     url = "http://%s:%d" % (host, port)
-    print("Model Advisor running at", url)
+    print("Model Advisor v%s running at" % __version__, url)
     print("Model endpoint:", CONFIG["backend"]["base_url"])
     if open_browser:
         threading.Thread(target=lambda: (time.sleep(0.5), webbrowser.open(url)),
