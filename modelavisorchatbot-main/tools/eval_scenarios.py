@@ -1,9 +1,10 @@
 """Score the skill classifier against the human consensus from the scenario study.
 
-    python tools/eval_scenarios.py [--mode retrieval|llm] [--n 200]
+    python tools/eval_scenarios.py [--mode retrieval|llm] [--n 200] [--key YOUR_OLLAMA_KEY]
 
 retrieval  nearest-scenario voting only (shows how much the examples alone carry)
-llm        the real chatbot classifier, with few-shot examples (needs an API key;
+llm        the real chatbot classifier, with few-shot examples (needs --key: the app has no
+           default key, and the key's Ollama account needs usage credits;
            the scenario being tested is excluded from its own examples)
 Follow-up questions are counted separately, not scored. Reports, per scenario averaged: top-1 hit (is our #1 skill in the human set?),
 precision, recall, and Jaccard of the predicted vs human skill sets.
@@ -49,7 +50,12 @@ def main():
     ap.add_argument("--no-questions", action="store_true",
                     help="llm: re-run scenarios where the chatbot asked a question, "
                          "telling it to answer anyway, and score only those")
+    ap.add_argument("--key", default="", help="Ollama API key for --mode llm")
     a = ap.parse_args()
+    if a.mode == "llm":
+        if not a.key:
+            ap.error("--mode llm needs --key YOUR_OLLAMA_KEY")
+        server._request.key = a.key   # same as typing the key into the app's "API key" box
     rows = [sc for sc in server.SCENARIOS if sc["skills"]]
     random.Random(a.seed).shuffle(rows)
     tot = Counter()
