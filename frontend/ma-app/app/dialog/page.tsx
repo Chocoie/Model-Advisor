@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
+import Link from "next/link";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -213,7 +214,7 @@ export default function Dialog() {
             {/* Left panel */} 
             <section id="leftPanel" className="flex min-h-screen w-90 flex-col items-start pt-24 border-r-2 border-darkgray">
                 <div className="absolute left-6 top-6">
-                    <p className="text-4xl font-bold text-gold">ModelAdvisor</p>
+                    <Link href="/" className="text-4xl font-bold text-gold">ModelAdvisor</Link>
                     <div className="mt-1 h-1 w-30 bg-ltgray" />
                 </div>
 

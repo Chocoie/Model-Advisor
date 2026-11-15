@@ -126,7 +126,7 @@ export default function SignUp()
     return (
         <div className="relative flex min-h-screen items-center justify-center bg-black p-6">
             <div className="absolute left-6 top-6">
-                <p className="text-4xl font-bold text-gold">ModelAdvisor</p>
+                <Link href="/" className="text-4xl font-bold text-gold">ModelAdvisor</Link>
                 <div className="mt-1 h-1 w-30 bg-ltgray" />
             </div>
             
