@@ -37,6 +37,7 @@ type MessageResponse = {
     results: { model: string; avg_rank: number; scores: Record<string, number> }[];
 };
 
+// Sends an authenticated backend request and returns its JSON response.
 async function apiRequest<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers);
     headers.set("Accept", "application/json");
@@ -62,6 +63,7 @@ async function apiRequest<T>(path: string, token: string, init: RequestInit = {}
     return response.json() as Promise<T>;
 }
 
+// Renders the signed-in user's conversations and chat interface.
 export default function Dialog() {
     const [user, setUser] = useState<CurrentUser | null>(null);
     const [error, setError] = useState("");
@@ -75,6 +77,7 @@ export default function Dialog() {
     useEffect(() => {
         let cancelled = false;
 
+        // Loads the signed-in user and their recent conversations.
         async function loadUser() {
             const token = localStorage.getItem("_token");
             if (!token) {
@@ -110,6 +113,7 @@ export default function Dialog() {
     const promptRef = useRef<HTMLTextAreaElement>(null);
     const currentConversation = conversations.find((conversation) => conversation.conversation_id === currConversation);
 
+    // Grows the prompt as the user types, then enables scrolling at its height limit.
     function handlePromptChange(event: React.ChangeEvent<HTMLTextAreaElement>) {
         const textBox = event.currentTarget;
         const maxHeight = 160;
@@ -119,6 +123,7 @@ export default function Dialog() {
         setDraft(textBox.value);
     }
 
+    // Creates and selects a new empty conversation.
     async function createConversation() {
         const token = localStorage.getItem("_token");
         if (!token) {
@@ -138,6 +143,7 @@ export default function Dialog() {
         }
     }
 
+    // Loads the selected conversation's message history.
     async function selectConversation(conversationId: string) {
         const token = localStorage.getItem("_token");
         if (!token) {
@@ -161,6 +167,7 @@ export default function Dialog() {
         }
     }
 
+    // Sends the draft, creating a conversation first if none is selected.
     async function sendMessage(event: React.FormEvent<HTMLFormElement>) {
         event.preventDefault();
         const message = draft.trim();
